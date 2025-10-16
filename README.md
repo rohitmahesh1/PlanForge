@@ -1,1 +1,1 @@
-LLM-powered google calendar scheduler/reorganizer to help me with planning
+LLM-powered google calendar scheduler/reorganizer to help me with planning.
