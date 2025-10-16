@@ -1,0 +1,208 @@
+{
+  "version": "1.0",
+  "description": "Tools that the assistant can call on the user's behalf. The backend enforces hard constraints; the model handles OCR, intent, priorities, and soft rules via /policies.",
+  "tools": [
+    {
+      "name": "calendar.freebusy",
+      "method": "POST",
+      "endpoint": "/calendar/freebusy",
+      "input_schema": {
+        "type": "object",
+        "required": ["start", "end"],
+        "properties": {
+          "start": { "type": "string", "format": "date-time" },
+          "end":   { "type": "string", "format": "date-time" }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "free_windows": {
+            "type": "array",
+            "items": { "type": "object", "properties": { "start": { "type": "string" }, "end": { "type": "string" } } }
+          },
+          "busy_windows": {
+            "type": "array",
+            "items": { "type": "object", "properties": { "start": { "type": "string" }, "end": { "type": "string" }, "event_id": { "type": "string" } } }
+          }
+        }
+      }
+    },
+    {
+      "name": "calendar.create",
+      "method": "POST",
+      "endpoint": "/calendar/create",
+      "input_schema": {
+        "type": "object",
+        "required": ["title", "start", "end"],
+        "properties": {
+          "title": { "type": "string" },
+          "start": { "type": "string", "format": "date-time" },
+          "end":   { "type": "string", "format": "date-time" },
+          "attendees": { "type": "array", "items": { "type": "string", "format": "email" } },
+          "location":  { "type": "string" },
+          "notes":     { "type": "string" },
+          "calendar_id": { "type": "string" },
+          "priority":  { "type": "string", "enum": ["high", "routine"] }
+        }
+      },
+      "output_schema": { "type": "object", "properties": { "op_id": { "type": "string" }, "event_id": { "type": "string" } } }
+    },
+    {
+      "name": "calendar.update",
+      "method": "POST",
+      "endpoint": "/calendar/update",
+      "input_schema": {
+        "type": "object",
+        "required": ["event_id", "patch"],
+        "properties": {
+          "event_id": { "type": "string" },
+          "patch":    { "type": "object", "additionalProperties": true }
+        }
+      },
+      "output_schema": { "type": "object", "properties": { "op_id": { "type": "string" }, "event_id": { "type": "string" } } }
+    },
+    {
+      "name": "calendar.move",
+      "method": "POST",
+      "endpoint": "/calendar/move",
+      "input_schema": {
+        "type": "object",
+        "required": ["event_id", "new_start", "new_end"],
+        "properties": {
+          "event_id":  { "type": "string" },
+          "new_start": { "type": "string", "format": "date-time" },
+          "new_end":   { "type": "string", "format": "date-time" }
+        }
+      },
+      "output_schema": { "type": "object", "properties": { "op_id": { "type": "string" }, "event_id": { "type": "string" } } }
+    },
+    {
+      "name": "calendar.delete",
+      "method": "POST",
+      "endpoint": "/calendar/delete",
+      "input_schema": {
+        "type": "object",
+        "required": ["event_id"],
+        "properties": { "event_id": { "type": "string" } }
+      },
+      "output_schema": { "type": "object", "properties": { "op_id": { "type": "string" } } }
+    },
+    {
+      "name": "calendar.reorg_today",
+      "method": "POST",
+      "endpoint": "/calendar/reorg_today",
+      "input_schema": {
+        "type": "object",
+        "required": ["now", "delay_min"],
+        "properties": {
+          "now":       { "type": "string", "format": "date-time" },
+          "delay_min": { "type": "integer", "minimum": 1 }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "moved":  { "type": "array", "items": { "type": "string" } },
+          "trimmed":{ "type": "array", "items": { "type": "string" } },
+          "pushed": { "type": "array", "items": { "type": "string" } },
+          "op_ids": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    {
+      "name": "tasks.add",
+      "method": "POST",
+      "endpoint": "/tasks/add",
+      "input_schema": {
+        "type": "object",
+        "required": ["title"],
+        "properties": {
+          "title": { "type": "string" },
+          "due":   { "type": "string", "format": "date" },
+          "estimate_min": { "type": "integer", "minimum": 5 }
+        }
+      },
+      "output_schema": { "type": "object", "properties": { "op_id": { "type": "string" }, "task": { "type": "object" } } }
+    },
+    {
+      "name": "ops.undo",
+      "method": "POST",
+      "endpoint": "/ops/undo",
+      "input_schema": {
+        "type": "object",
+        "properties": { "op_id": { "type": "string", "description": "If omitted, undo most recent" } }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "reverted": { "type": "boolean" },
+          "restored_event_id": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "prefs.get",
+      "method": "GET",
+      "endpoint": "/prefs",
+      "input_schema": { "type": "object", "properties": {} },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "sleep_start": { "type": "string" },
+          "sleep_end":   { "type": "string" },
+          "min_buffer_min": { "type": "integer" },
+          "default_event_len_min": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "prefs.update",
+      "method": "POST",
+      "endpoint": "/prefs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sleep_start": { "type": "string" },
+          "sleep_end":   { "type": "string" },
+          "min_buffer_min": { "type": "integer" },
+          "default_event_len_min": { "type": "integer" }
+        }
+      },
+      "output_schema": { "$ref": "#/tools/8/output_schema" }
+    },
+    {
+      "name": "policies.save",
+      "method": "POST",
+      "endpoint": "/policies/save",
+      "input_schema": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "text": { "type": "string", "description": "Natural-language durable preference" },
+          "json": { "type": "object", "additionalProperties": true },
+          "active": { "type": "boolean", "default": true }
+        }
+      },
+      "output_schema": { "type": "object", "properties": { "id": { "type": "string" }, "text": { "type": "string" }, "json": { "type": "object" }, "active": { "type": "boolean" } } }
+    },
+    {
+      "name": "policies.list",
+      "method": "GET",
+      "endpoint": "/policies/list",
+      "input_schema": { "type": "object", "properties": {} },
+      "output_schema": { "type": "object", "properties": { "items": { "type": "array", "items": { "type": "object" } } } }
+    },
+    {
+      "name": "policies.delete",
+      "method": "DELETE",
+      "endpoint": "/policies/{policy_id}",
+      "input_schema": {
+        "type": "object",
+        "required": ["policy_id"],
+        "properties": { "policy_id": { "type": "string" } }
+      },
+      "output_schema": { "type": "object", "properties": { "id": { "type": "string" }, "text": { "type": "string" }, "json": { "type": "object" }, "active": { "type": "boolean" } } }
+    }
+  ]
+}
