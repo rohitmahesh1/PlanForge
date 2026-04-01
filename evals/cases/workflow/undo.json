@@ -1,0 +1,21 @@
+{
+  "id": "workflow_undo",
+  "suite": "workflow",
+  "adapter": "workflow_heuristic",
+  "description": "Undo requests should map cleanly to the undo workflow.",
+  "input": {
+    "text": "Undo my last change.",
+    "source": "web",
+    "dry_run": false
+  },
+  "expected": {
+    "intent": "undo_change",
+    "workflow": "undo_workflow",
+    "needs_lookup": false,
+    "expects_write": true,
+    "confidence_in": ["high"],
+    "allowed_tools_include": ["ops.undo", "ops.history"],
+    "primary_tools_include": ["ops.undo"]
+  },
+  "tags": ["undo"]
+}
