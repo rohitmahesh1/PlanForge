@@ -1,0 +1,18 @@
+{
+  "id": "router_stub_reorg_delay",
+  "suite": "router_stub",
+  "adapter": "router_stub",
+  "description": "Overslept requests should use the day reorganization workflow in stub mode.",
+  "input": {
+    "text": "I overslept 45 minutes, can you rework the rest of today?",
+    "source": "web"
+  },
+  "expected": {
+    "intent": "reorganize_day",
+    "workflow": "day_reorganization",
+    "trace_status": "completed",
+    "result_kind": "day_reorganization",
+    "summary_contains": "45 minutes"
+  },
+  "tags": ["router", "stub", "reorg"]
+}
