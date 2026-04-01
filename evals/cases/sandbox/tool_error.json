@@ -1,0 +1,48 @@
+{
+  "id": "sandbox_tool_error",
+  "suite": "sandbox",
+  "adapter": "sandbox_plan",
+  "description": "Tool failures should surface as execution errors with the failing tool in the trace.",
+  "input": {
+    "plan": {
+      "steps": [
+        {
+          "id": "search",
+          "tool": "calendar.search",
+          "args": {
+            "query": "chem prep"
+          }
+        },
+        {
+          "id": "move",
+          "tool": "calendar.move",
+          "args": {
+            "event_id": "$search.events.0.id",
+            "new_start": "2026-04-02T16:00:00-04:00",
+            "new_end": "2026-04-02T17:00:00-04:00"
+          }
+        }
+      ]
+    },
+    "tool_results": {
+      "calendar.search": {
+        "events": [
+          {
+            "id": "evt_1"
+          }
+        ]
+      },
+      "calendar.move": {
+        "__error__": "calendar API unavailable"
+      }
+    }
+  },
+  "expected": {
+    "status": "error",
+    "op_ids_count": 0,
+    "tool_calls": 2,
+    "trace_tools_exact": ["calendar.search", "calendar.move"],
+    "trace_kinds_exact": ["tool", "tool"]
+  },
+  "tags": ["sandbox", "error"]
+}
