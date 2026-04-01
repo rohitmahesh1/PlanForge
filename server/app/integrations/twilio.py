@@ -21,12 +21,9 @@ from pydantic import BaseModel
 
 # Planned imports (implement later)
 from app.models.user import User
-from app.models.prefs import Prefs
-from app.models.policy import Policy
 from app.services.identity import IdentityLinkService
 from app.services.twilio_media import TwilioMediaService
-from app.services.gcal import GCalClient
-from app.services.freebusy import FreeBusyService
+from app.services.ingress_context import IngressContextService
 from app.services.llm_router import LLMRouter
 
 router = APIRouter(prefix="/integrations/twilio", tags=["integrations:twilio"])
@@ -50,11 +47,7 @@ async def twilio_webhook(
     if not user:
         raise HTTPException(status_code=401, detail="Unknown phone number. Please link your account.")
 
-    gcal = GCalClient(user=user)
-    prefs: Prefs = await gcal.get_prefs()
-    policies: list[Policy] = []  # fetch from DB when implemented
-    fb = FreeBusyService(gcal=gcal)
-    freebusy_snapshot = await fb.snapshot(hours_ahead=36)
+    context = await IngressContextService(user=user).build(hours_ahead=36)
 
     # Handle optional media
     image_url: Optional[str] = None
@@ -66,9 +59,9 @@ async def twilio_webhook(
     result = await llm.process_message(
         text=Body or None,
         image_url=image_url,
-        prefs=prefs,
-        policies=policies,
-        freebusy_snapshot=freebusy_snapshot,
+        prefs=context.prefs,
+        policies=context.policies,
+        freebusy_snapshot=context.freebusy_snapshot,
         source="sms",
     )
     return TwilioAck()
