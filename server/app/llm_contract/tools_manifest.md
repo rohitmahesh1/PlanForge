@@ -11,12 +11,17 @@ Hard constraints (sleep window, buffers, collisions) are enforced server-side.
 
 ## Tools (HTTP endpoints)
 - `calendar.freebusy(start, end)` → free/busy windows
+- `calendar.list(start, end, calendar_id?, limit?)` → events in a time range
+- `calendar.search(query, start?, end?, calendar_id?, limit?)` → find events by title/details
 - `calendar.create(title, start, end, attendees?, location?, notes?, calendar_id?, priority?)`
 - `calendar.update(event_id, patch)`
 - `calendar.move(event_id, new_start, new_end)`
 - `calendar.delete(event_id)`
 - `calendar.reorg_today(now, delay_min)`
 - `tasks.add(title, due?, estimate_min?)`
+- `tasks.list(from_date?, to_date?)`
+- `tasks.complete(task_event_id)`
 - `ops.undo(op_id?)`
+- `ops.history(limit?)`
 - `prefs.get()` / `prefs.update(...)`
 - `policies.save(text, json?, active)` / `policies.list()` / `policies.delete(policy_id)`
