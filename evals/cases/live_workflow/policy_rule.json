@@ -1,0 +1,20 @@
+{
+  "id": "live_workflow_policy_rule",
+  "suite": "live_workflow",
+  "adapter": "live_openai_workflow",
+  "mode": "live",
+  "description": "Live benchmark for durable scheduling policy classification.",
+  "input": {
+    "text": "Always leave 20 minutes between classes.",
+    "source": "web",
+    "dry_run": false
+  },
+  "expected": {
+    "intent": "update_policy",
+    "workflow": "policy_management",
+    "needs_lookup": false,
+    "expects_write": true,
+    "confidence_in": ["medium", "high"]
+  },
+  "tags": ["live", "workflow", "policy"]
+}
