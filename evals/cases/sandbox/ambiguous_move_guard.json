@@ -1,0 +1,64 @@
+{
+  "id": "sandbox_ambiguous_move_guard",
+  "suite": "sandbox",
+  "adapter": "sandbox_plan",
+  "description": "A guard return should stop execution when search results are ambiguous.",
+  "input": {
+    "plan": {
+      "steps": [
+        {
+          "id": "search",
+          "tool": "calendar.search",
+          "args": {
+            "query": "chem prep"
+          }
+        },
+        {
+          "id": "clarify",
+          "if": {
+            "not": {
+              "len_equals": [
+                "$search.events",
+                1
+              ]
+            }
+          },
+          "return": {
+            "status": "needs_clarification",
+            "matches": "$search.events"
+          }
+        },
+        {
+          "id": "move",
+          "tool": "calendar.move",
+          "args": {
+            "event_id": "$search.events.0.id",
+            "new_start": "2026-04-02T16:00:00-04:00",
+            "new_end": "2026-04-02T17:00:00-04:00"
+          }
+        }
+      ]
+    },
+    "tool_results": {
+      "calendar.search": {
+        "events": [
+          {
+            "id": "evt_1"
+          },
+          {
+            "id": "evt_2"
+          }
+        ]
+      }
+    }
+  },
+  "expected": {
+    "status": "ok",
+    "result_status": "needs_clarification",
+    "op_ids_count": 0,
+    "tool_calls": 1,
+    "trace_tools_exact": ["calendar.search"],
+    "trace_kinds_exact": ["tool", "return"]
+  },
+  "tags": ["sandbox", "guard"]
+}
