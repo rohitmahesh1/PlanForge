@@ -117,6 +117,36 @@
       }
     },
     {
+      "name": "calendar.get",
+      "method": "POST",
+      "endpoint": "/calendar/get",
+      "input_schema": {
+        "type": "object",
+        "required": ["event_id"],
+        "properties": {
+          "event_id": { "type": "string" },
+          "calendar_id": { "type": "string" }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "start": { "type": "string" },
+          "end": { "type": "string" },
+          "all_day": { "type": "boolean" },
+          "location": { "type": "string" },
+          "attendees": { "type": "array", "items": { "type": "string" } },
+          "priority": { "type": "string" },
+          "status": { "type": "string" },
+          "notes": { "type": "string" },
+          "calendar_id": { "type": "string" },
+          "html_link": { "type": "string" }
+        }
+      }
+    },
+    {
       "name": "calendar.create",
       "method": "POST",
       "endpoint": "/calendar/create",
@@ -290,6 +320,74 @@
         "properties": {
           "op_id": { "type": "string" },
           "task": { "type": "object" }
+        }
+      }
+    },
+    {
+      "name": "tasks.update",
+      "method": "POST",
+      "endpoint": "/tasks/update",
+      "input_schema": {
+        "type": "object",
+        "required": ["task_event_id"],
+        "properties": {
+          "task_event_id": { "type": "string" },
+          "title": { "type": "string" },
+          "due": { "type": "string", "format": "date" },
+          "estimate_min": { "type": "integer", "minimum": 5 },
+          "status": { "type": "string", "enum": ["pending", "done"] }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "op_id": { "type": "string" },
+          "task": { "type": "object" }
+        }
+      }
+    },
+    {
+      "name": "tasks.delete",
+      "method": "POST",
+      "endpoint": "/tasks/delete",
+      "input_schema": {
+        "type": "object",
+        "required": ["task_event_id"],
+        "properties": {
+          "task_event_id": { "type": "string" }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "op_id": { "type": "string" },
+          "task_event_id": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "tasks.schedule",
+      "method": "POST",
+      "endpoint": "/tasks/schedule",
+      "input_schema": {
+        "type": "object",
+        "required": ["task_event_id", "start"],
+        "properties": {
+          "task_event_id": { "type": "string" },
+          "start": { "type": "string", "format": "date-time" },
+          "end": { "type": "string", "format": "date-time" },
+          "duration_min": { "type": "integer", "minimum": 5 },
+          "title": { "type": "string" },
+          "calendar_id": { "type": "string" },
+          "priority": { "type": "string", "enum": ["high", "routine"] }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "op_id": { "type": "string" },
+          "task_event_id": { "type": "string" },
+          "scheduled_event_id": { "type": "string" }
         }
       }
     },
