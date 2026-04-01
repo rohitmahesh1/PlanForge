@@ -1,0 +1,3 @@
+sandbox/quickjs/package-lock.json linguist-generated=true
+server/alembic/script.py.mako linguist-generated=true
+server/alembic/versions/*.py linguist-generated=true
