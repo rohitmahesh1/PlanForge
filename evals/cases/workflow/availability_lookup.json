@@ -1,0 +1,21 @@
+{
+  "id": "workflow_availability_lookup",
+  "suite": "workflow",
+  "adapter": "workflow_heuristic",
+  "description": "Availability questions should classify into the lookup workflow and stay read-only.",
+  "input": {
+    "text": "When am I free tomorrow afternoon?",
+    "source": "web",
+    "dry_run": false
+  },
+  "expected": {
+    "intent": "find_availability",
+    "workflow": "availability_lookup",
+    "needs_lookup": true,
+    "expects_write": false,
+    "confidence_in": ["medium", "high"],
+    "allowed_tools_include": ["calendar.freebusy", "calendar.list", "calendar.search"],
+    "primary_tools_include": ["calendar.freebusy"]
+  },
+  "tags": ["availability", "lookup"]
+}
