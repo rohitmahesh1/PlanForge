@@ -17,6 +17,18 @@ EXACT_KEYS = {
     "result_kind",
     "op_ids_count",
     "tool_calls",
+    "is_available",
+    "events_count",
+    "tasks_count",
+    "items_count",
+    "free_windows_count",
+    "busy_windows_count",
+    "op_id_present",
+    "event_id",
+    "policy_id",
+    "scheduled_event_id",
+    "task_event_id",
+    "restored_event_id",
 }
 
 
@@ -111,6 +123,32 @@ def score_case(case: EvalCase, actual: Dict[str, Any], metrics: EvalMetrics) -> 
                 passed=forbidden.lower() not in actual_summary.lower(),
                 expected=forbidden,
                 actual=actual_summary,
+            )
+        )
+
+    if "error_contains" in expected:
+        actual_error = str(actual.get("error", ""))
+        expected_snippet = str(expected["error_contains"])
+        assertions.append(
+            EvalAssertion(
+                name="error_contains",
+                passed=expected_snippet.lower() in actual_error.lower(),
+                expected=expected_snippet,
+                actual=actual_error,
+            )
+        )
+
+    if "result_keys_include" in expected:
+        actual_keys = list(actual.get("result_keys", []))
+        required_keys = list(expected["result_keys_include"])
+        missing = [key for key in required_keys if key not in actual_keys]
+        assertions.append(
+            EvalAssertion(
+                name="result_keys_include",
+                passed=not missing,
+                expected=required_keys,
+                actual=actual_keys,
+                details="" if not missing else f"Missing keys: {', '.join(missing)}",
             )
         )
 
