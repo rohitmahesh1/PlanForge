@@ -1,0 +1,21 @@
+{
+  "id": "tool_host_policies_save",
+  "suite": "tool_host",
+  "adapter": "tool_host",
+  "description": "ToolHost should persist a scheduling rule through the policy store.",
+  "input": {
+    "tool_name": "policies.save",
+    "args": {
+      "text": "Always leave 15 minutes between classes.",
+      "active": true
+    },
+    "next_policy_id": 12
+  },
+  "expected": {
+    "status": "ok",
+    "is_available": true,
+    "policy_id": 12,
+    "result_keys_include": ["id", "text", "active"]
+  },
+  "tags": ["tool-host", "policy"]
+}
