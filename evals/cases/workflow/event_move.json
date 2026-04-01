@@ -1,0 +1,21 @@
+{
+  "id": "workflow_event_move",
+  "suite": "workflow",
+  "adapter": "workflow_heuristic",
+  "description": "Moving an existing event should classify into event management and require lookup before mutation.",
+  "input": {
+    "text": "Move my chem prep to tomorrow at 4pm.",
+    "source": "web",
+    "dry_run": false
+  },
+  "expected": {
+    "intent": "manage_event",
+    "workflow": "event_management",
+    "needs_lookup": true,
+    "expects_write": true,
+    "confidence_in": ["medium", "high"],
+    "allowed_tools_include": ["calendar.search", "calendar.move", "calendar.get"],
+    "primary_tools_include": ["calendar.search", "calendar.get"]
+  },
+  "tags": ["calendar", "mutation"]
+}
