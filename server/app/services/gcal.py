@@ -167,13 +167,14 @@ class GCalClient:
         self,
         *,
         title: str,
-        start: datetime,
-        end: datetime,
+        start: datetime | dict[str, Any],
+        end: datetime | dict[str, Any],
         attendees: Optional[list[str]] = None,
         location: Optional[str] = None,
         notes: Optional[str] = None,
         calendar_id: Optional[str] = None,
         priority: Optional[str] = None,  # "high" | "routine"
+        private_properties: Optional[dict[str, Any]] = None,
     ) -> dict:
         """
         Create an event. We store `priority` in private extendedProperties so
@@ -184,8 +185,8 @@ class GCalClient:
 
         body: Dict[str, Any] = {
             "summary": title,
-            "start": {"dateTime": to_rfc3339(to_tz(start, tz)), "timeZone": tz},
-            "end": {"dateTime": to_rfc3339(to_tz(end, tz)), "timeZone": tz},
+            "start": _normalize_create_time(start, tz),
+            "end": _normalize_create_time(end, tz),
         }
         if location:
             body["location"] = location
@@ -193,8 +194,13 @@ class GCalClient:
             body["description"] = notes
         if attendees:
             body["attendees"] = [{"email": a} for a in attendees if a]
+        private: Dict[str, Any] = {}
         if priority:
-            body["extendedProperties"] = {"private": {"priority": priority}}
+            private["priority"] = priority
+        if private_properties:
+            private.update({str(k): str(v) for k, v in private_properties.items() if v is not None})
+        if private:
+            body["extendedProperties"] = {"private": private}
 
         url = f"{GCAL_BASE}/calendars/{cid}/events"
         try:
@@ -327,6 +333,14 @@ def _normalize_patch_datetimes(patch: dict, tz_str: str) -> dict:
         dt = fixed["end"]
         fixed["end"] = {"dateTime": to_rfc3339(to_tz(dt, tz_str)), "timeZone": tz_str}
     return fixed
+
+
+def _normalize_create_time(val: datetime | dict[str, Any], tz_str: str) -> dict[str, Any]:
+    if isinstance(val, datetime):
+        return {"dateTime": to_rfc3339(to_tz(val, tz_str)), "timeZone": tz_str}
+    if isinstance(val, dict):
+        return dict(val)
+    raise TypeError(f"Unsupported event time value: {val!r}")
 
 
 def _coerce_expires_in(val: Any) -> Optional[int]:
