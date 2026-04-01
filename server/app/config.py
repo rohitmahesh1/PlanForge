@@ -5,11 +5,28 @@ import os
 from functools import lru_cache
 from pydantic import BaseModel, Field
 
+
+def _default_cors_allow_origins() -> list[str]:
+    raw = os.getenv("CORS_ALLOW_ORIGINS")
+    if raw:
+        return [item.strip() for item in raw.split(",") if item.strip()]
+    if os.getenv("ENVIRONMENT", "dev").lower() == "dev":
+        return ["*"]
+    return []
+
+
+def _default_allow_debug_header_user() -> bool:
+    env = os.getenv("ENVIRONMENT", "dev").lower()
+    default = "true" if env == "dev" else "false"
+    return os.getenv("ALLOW_DEBUG_HEADER_USER", default).lower() == "true"
+
+
 class Settings(BaseModel):
     # App
     app_name: str = Field(default="assistant-scheduler")
     environment: str = Field(default=os.getenv("ENVIRONMENT", "dev"))
     debug: bool = Field(default=os.getenv("DEBUG", "false").lower() == "true")
+    cors_allow_origins: list[str] = Field(default_factory=_default_cors_allow_origins)
 
     # Auth / Security
     jwt_secret: str = Field(default=os.getenv("JWT_SECRET", "change-me"))
@@ -34,7 +51,7 @@ class Settings(BaseModel):
     )
 
     # Dev helpers
-    allow_debug_header_user: bool = Field(default=os.getenv("ALLOW_DEBUG_HEADER_USER", "true").lower() == "true")
+    allow_debug_header_user: bool = Field(default_factory=_default_allow_debug_header_user)
 
     # Optional integrations. These stay off by default until their backing services exist.
     enable_telegram_integration: bool = Field(
