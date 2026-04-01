@@ -6,7 +6,7 @@ Calendar CRUD & utilities used by the LLM tools:
 """
 
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -17,10 +17,12 @@ from app.auth.google_oauth import require_user
 from app.models.user import User
 from app.models.changelog import ChangeLogEntry
 from app.models.prefs import Prefs
+from app.services.calendar_projection import summarize_event
 from app.services.gcal import GCalClient
 from app.services.freebusy import FreeBusyService
 from app.services.undo import ChangeLogger
 from app.services.reorg import ReorgService
+from app.utils import utcnow
 
 router = APIRouter(prefix="/calendar", tags=["calendar"])
 
@@ -46,6 +48,37 @@ class BusyWindow(BaseModel):
 class FreeBusyResponse(BaseModel):
     free_windows: list[FreeWindow]
     busy_windows: list[BusyWindow]
+
+
+class EventSummary(BaseModel):
+    id: str
+    title: str = ""
+    start: Optional[str] = None
+    end: Optional[str] = None
+    all_day: bool = False
+    location: Optional[str] = None
+    attendees: list[str] = Field(default_factory=list)
+    priority: Optional[str] = None
+    status: Optional[str] = None
+
+
+class EventListRequest(BaseModel):
+    start: datetime
+    end: datetime
+    calendar_id: Optional[str] = None
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+class EventSearchRequest(BaseModel):
+    query: str = Field(..., min_length=1)
+    start: Optional[datetime] = None
+    end: Optional[datetime] = None
+    calendar_id: Optional[str] = None
+    limit: int = Field(default=10, ge=1, le=100)
+
+
+class EventListResponse(BaseModel):
+    events: list[EventSummary]
 
 
 class EventCreateRequest(BaseModel):
@@ -107,6 +140,40 @@ async def freebusy(
     fb = FreeBusyService(gcal=gcal, prefs=prefs)
     free, busy = await fb.query(body.start, body.end)
     return FreeBusyResponse(free_windows=free, busy_windows=busy)
+
+
+@router.post("/list", response_model=EventListResponse)
+async def list_events(
+    body: EventListRequest,
+    user: User = Depends(require_user),
+) -> EventListResponse:
+    gcal = GCalClient(user=user)
+    events = await gcal.list_events(
+        body.start,
+        body.end,
+        calendar_id=body.calendar_id,
+        max_results=body.limit,
+    )
+    return EventListResponse(events=_event_summaries(events))
+
+
+@router.post("/search", response_model=EventListResponse)
+async def search_events(
+    body: EventSearchRequest,
+    user: User = Depends(require_user),
+) -> EventListResponse:
+    gcal = GCalClient(user=user)
+    now = utcnow()
+    start = body.start or (now - timedelta(days=30))
+    end = body.end or (now + timedelta(days=90))
+    events = await gcal.search_events(
+        query=body.query,
+        start=start,
+        end=end,
+        calendar_id=body.calendar_id,
+        max_results=body.limit,
+    )
+    return EventListResponse(events=_event_summaries(events))
 
 
 @router.post("/create", response_model=OpResult)
@@ -204,3 +271,7 @@ async def reorg_today(
     return ReorgTodayResult(
         moved=plan.moved_ids, trimmed=plan.trimmed_ids, pushed=plan.pushed_ids, op_ids=plan.op_ids
     )
+
+
+def _event_summaries(items: list[dict[str, Any]]) -> list[EventSummary]:
+    return [EventSummary(**summarize_event(item)) for item in items]
