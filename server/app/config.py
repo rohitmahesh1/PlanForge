@@ -36,6 +36,14 @@ class Settings(BaseModel):
     # Dev helpers
     allow_debug_header_user: bool = Field(default=os.getenv("ALLOW_DEBUG_HEADER_USER", "true").lower() == "true")
 
+    # Optional integrations. These stay off by default until their backing services exist.
+    enable_telegram_integration: bool = Field(
+        default=os.getenv("ENABLE_TELEGRAM_INTEGRATION", "false").lower() == "true"
+    )
+    enable_twilio_integration: bool = Field(
+        default=os.getenv("ENABLE_TWILIO_INTEGRATION", "false").lower() == "true"
+    )
+
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
