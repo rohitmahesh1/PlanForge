@@ -1,0 +1,21 @@
+{
+  "id": "tool_host_dry_run_blocks_create",
+  "suite": "tool_host",
+  "adapter": "tool_host",
+  "description": "ToolHost should reject write tools in dry-run mode before executing them.",
+  "input": {
+    "tool_name": "calendar.create",
+    "args": {
+      "title": "Focus Block",
+      "start": "2026-04-02T15:00:00-04:00",
+      "end": "2026-04-02T15:45:00-04:00"
+    },
+    "dry_run": true
+  },
+  "expected": {
+    "status": "error",
+    "is_available": false,
+    "error_contains": "not available in dry-run mode"
+  },
+  "tags": ["tool-host", "dry-run"]
+}
