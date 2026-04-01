@@ -28,4 +28,4 @@ PlanForge is an agentic scheduling backend that converts natural-language planni
 
 ![PlanForge architecture](assets/planforge-architecture.svg)
 
-Diagram source: [assets/planforge-architecture.puml](/home/user/Projects/PlanForge/assets/planforge-architecture.puml)
+Diagram source: [assets/planforge-architecture.puml](/assets/planforge-architecture.puml)
