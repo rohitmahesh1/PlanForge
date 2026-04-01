@@ -34,6 +34,8 @@ The `/message` response now includes lightweight workflow metadata so you can in
 - Run `python -m evals.runner --suite workflow` for the first deterministic workflow-classification suite.
 - Run `python -m evals.runner --suite sandbox` for fixture-backed sandbox plan execution.
 - Run `python -m evals.runner --suite router_stub` for stub-mode router and workflow-trace checks.
+- Run `python -m evals.runner --suite tool_host` for fixture-backed ToolHost execution and dry-run enforcement.
+- Run `python -m evals.runner --suite live_workflow --include-live --allow-live --live-model gpt-5` for optional live OpenAI workflow benchmarks.
 - Run `python -m evals.runner --write-artifacts` to emit JSON and Markdown reports under `evals/reports/`.
 - See [evals/README.md](/home/user/Projects/PlanForge/evals/README.md) for the case format, scoring rules, and next planned eval layers.
 
