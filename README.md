@@ -22,7 +22,6 @@ PlanForge is an agentic scheduling backend that converts natural-language planni
 - Planning is separated cleanly from side effects.
 - Tool execution is centralized behind one host boundary.
 - Calendar state, task state, policies, and undo history all fit into the same workflow model.
-- The eval layer sits alongside the product code instead of being treated as an afterthought.
 
 ## Architecture
 
