@@ -3,6 +3,12 @@
 The assistant should **plan** then call tools with minimal back-and-forth.  
 Hard constraints (sleep window, buffers, collisions) are enforced server-side.
 
+## Workflow Model
+- Each request is classified into a workflow before planning.
+- Workflows narrow the default tool set so event, task, policy, undo, and reorg requests follow the right path.
+- When a workflow points to a likely lookup-first task, search or inspect before writing.
+- If the workflow and the user request disagree, prefer the user request and ask a short clarification only when acting would be risky.
+
 ## Rules of Thumb
 - Never schedule inside sleep: **22:30–07:00** (user-editable via `/prefs`).
 - Meetings with attendees are **fixed** unless the user asks to propose changes.
