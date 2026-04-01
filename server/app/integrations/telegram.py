@@ -18,12 +18,9 @@ from pydantic import BaseModel, Field
 
 # Planned imports (implement later)
 from app.models.user import User
-from app.models.prefs import Prefs
-from app.models.policy import Policy
 from app.services.identity import IdentityLinkService  # resolves external ids -> user
 from app.services.telegram_files import TelegramFileService  # file_id -> URL
-from app.services.gcal import GCalClient
-from app.services.freebusy import FreeBusyService
+from app.services.ingress_context import IngressContextService
 from app.services.llm_router import LLMRouter
 
 router = APIRouter(prefix="/integrations/telegram", tags=["integrations:telegram"])
@@ -66,12 +63,7 @@ async def telegram_webhook(req: Request) -> TGAck:
         # You might reply via Telegram API; for now just 401
         raise HTTPException(status_code=401, detail="Unknown Telegram chat. Please link your account.")
 
-    # Gather minimal context (prefs, policies, free/busy snapshot)
-    gcal = GCalClient(user=user)
-    prefs: Prefs = await gcal.get_prefs()
-    policies: list[Policy] = []  # fetch from DB when implemented
-    fb = FreeBusyService(gcal=gcal)
-    freebusy_snapshot = await fb.snapshot(hours_ahead=36)
+    context = await IngressContextService(user=user).build(hours_ahead=36)
 
     # Text and optional image
     text = update.message.text
@@ -87,9 +79,9 @@ async def telegram_webhook(req: Request) -> TGAck:
     result = await llm.process_message(
         text=text,
         image_url=image_url,
-        prefs=prefs,
-        policies=policies,
-        freebusy_snapshot=freebusy_snapshot,
+        prefs=context.prefs,
+        policies=context.policies,
+        freebusy_snapshot=context.freebusy_snapshot,
         source="telegram",
     )
 
