@@ -29,6 +29,14 @@ The current `quickjs_plan` backend already runs plans inside QuickJS/WASM while 
 
 The `/message` response now includes lightweight workflow metadata so you can inspect the classified intent, selected workflow, tools used, and execution status for each request.
 
+## Evals
+
+- Run `python -m evals.runner --suite workflow` for the first deterministic workflow-classification suite.
+- Run `python -m evals.runner --suite sandbox` for fixture-backed sandbox plan execution.
+- Run `python -m evals.runner --suite router_stub` for stub-mode router and workflow-trace checks.
+- Run `python -m evals.runner --write-artifacts` to emit JSON and Markdown reports under `evals/reports/`.
+- See [evals/README.md](/home/user/Projects/PlanForge/evals/README.md) for the case format, scoring rules, and next planned eval layers.
+
 ## Database Migrations
 
 - Install server dependencies from [server/requirements.txt](/home/user/Projects/PlanForge/server/requirements.txt).
