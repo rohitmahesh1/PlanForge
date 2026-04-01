@@ -9,7 +9,7 @@ PlanForge is an agentic scheduling backend that converts natural-language planni
 - Runs model-authored plans through a shared execution boundary backed by a QuickJS/WASM sandbox path.
 - Tracks behavior with a built-in eval harness, regression baselines, and CI checks.
 
-## Core Shape
+## Architecture
 
 - `message.py` is the conversational entrypoint and the main path for agent-driven planning requests.
 - `LLMRouter` handles workflow-aware orchestration, prompt usage, tool access, and response tracing.
@@ -17,7 +17,7 @@ PlanForge is an agentic scheduling backend that converts natural-language planni
 - `sandbox/quickjs` contains the constrained runtime used for sandboxed plan execution.
 - `evals/` contains deterministic and live evaluation suites, baseline comparison, and reporting.
 
-## Why It Feels Cohesive
+## Design
 
 - Planning is separated cleanly from side effects.
 - Tool execution is centralized behind one host boundary.
