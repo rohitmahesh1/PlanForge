@@ -1,0 +1,34 @@
+{
+  "id": "tool_host_freebusy",
+  "suite": "tool_host",
+  "adapter": "tool_host",
+  "description": "ToolHost should project free and busy windows into the contract shape.",
+  "input": {
+    "tool_name": "calendar.freebusy",
+    "args": {
+      "start": "2026-04-02T09:00:00-04:00",
+      "end": "2026-04-02T17:00:00-04:00"
+    },
+    "freebusy_free": [
+      {
+        "start": "2026-04-02T13:00:00-04:00",
+        "end": "2026-04-02T14:00:00-04:00"
+      }
+    ],
+    "freebusy_busy": [
+      {
+        "start": "2026-04-02T10:00:00-04:00",
+        "end": "2026-04-02T11:00:00-04:00",
+        "event_id": "evt_chem"
+      }
+    ]
+  },
+  "expected": {
+    "status": "ok",
+    "is_available": true,
+    "free_windows_count": 1,
+    "busy_windows_count": 1,
+    "result_keys_include": ["free_windows", "busy_windows"]
+  },
+  "tags": ["tool-host", "calendar", "freebusy"]
+}
