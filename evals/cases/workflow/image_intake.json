@@ -1,0 +1,22 @@
+{
+  "id": "workflow_image_intake",
+  "suite": "workflow",
+  "adapter": "workflow_heuristic",
+  "description": "Image-based scheduling intake should select the image workflow.",
+  "input": {
+    "text": null,
+    "image_url": "https://example.com/schedule.png",
+    "source": "web",
+    "dry_run": false
+  },
+  "expected": {
+    "intent": "process_schedule_image",
+    "workflow": "image_schedule_intake",
+    "needs_lookup": true,
+    "expects_write": true,
+    "confidence_in": ["medium", "high"],
+    "allowed_tools_include": ["calendar.search", "calendar.freebusy", "tasks.add"],
+    "primary_tools_include": ["calendar.search", "tasks.add"]
+  },
+  "tags": ["image"]
+}
