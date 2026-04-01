@@ -6,7 +6,7 @@ which decides on tool calls (create/move/update/etc).
 """
 
 from __future__ import annotations
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -39,6 +39,10 @@ class MessageOut(BaseModel):
     # You can include op_ids if the LLM performed writes:
     op_ids: Optional[list[str]] = None
     dry_run: bool = False
+    workflow: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Structured workflow metadata for the classified request and execution trace",
+    )
 
 
 @router.post("", response_model=MessageOut)
@@ -70,4 +74,5 @@ async def handle_message(
         result_summary=result.summary,
         op_ids=result.op_ids or [],
         dry_run=payload.dry_run,
+        workflow=result.workflow_trace.to_dict() if result.workflow_trace else None,
     )
