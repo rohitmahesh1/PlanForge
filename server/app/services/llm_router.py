@@ -5,21 +5,19 @@ import os
 import re
 import json
 from dataclasses import dataclass
-from typing import Optional, List, Any, Dict, Callable, Awaitable
-from datetime import date, datetime, timedelta
+from typing import Optional, List, Any, Dict
+from datetime import datetime
 
 from app.llm_contract import load_system_prompt, load_tool_schemas
 from app.models.user import User
-from app.models.prefs import Prefs, PrefsUpdate
+from app.models.prefs import Prefs
 from app.models.policy import Policy
-from app.services.calendar_projection import detail_event, summarize_event
 from app.services.freebusy import FreeBusyService
 from app.services.gcal import GCalClient
+from app.services.sandbox_executor import SandboxExecutionResult, SandboxExecutor
 from app.services.undo import ChangeLogger
-from app.services.reorg import ReorgService
-from app.services.tasks_service import TasksService, serialize_task_item
-from app.services.policy_store import PolicyStore
-from app.utils import to_rfc3339, from_rfc3339, utcnow
+from app.services.tool_host import ToolHost
+from app.utils import to_rfc3339
 
 # Optional OpenAI dependency (only used if LLM_ROUTER_MODE=openai)
 try:
@@ -47,7 +45,10 @@ class LLMRouter:
     def __init__(self, user: User):
         self.user = user
         self.mode = os.getenv("LLM_ROUTER_MODE", "stub").lower()  # 'openai' | 'stub'
+        self.execution_mode = os.getenv("LLM_EXECUTION_MODE", "native_tools").lower()
         self.model = os.getenv("LLM_MODEL", "gpt-5")  # change if needed (must support tools; for images use a vision model)
+        self.max_steps = int(os.getenv("LLM_MAX_STEPS", "8"))
+        self.max_sandbox_steps = int(os.getenv("SANDBOX_MAX_STEPS", "8"))
 
     async def process_message(
         self,
@@ -92,53 +93,62 @@ class LLMRouter:
         client = AsyncOpenAI()  # requires OPENAI_API_KEY
         system_prompt = load_system_prompt()
         tool_manifest = load_tool_schemas()
+        tool_host = ToolHost(self.user, dry_run=dry_run)
+        sandbox = SandboxExecutor(tool_host, max_steps=self.max_sandbox_steps)
+        ctx = self._build_context(prefs=prefs, policies=policies, snapshot=snapshot, dry_run=dry_run)
+        user_content = self._build_user_content(text=text, image_url=image_url)
 
-        # Build tool registry: OpenAI function specs + dispatcher map
-        tools_oa, name_map, dispatch = self._build_tool_registry(tool_manifest, dry_run=dry_run)
+        if self.execution_mode == "sandbox_plan":
+            return await self._run_openai_sandbox_plan(
+                client=client,
+                system_prompt=system_prompt,
+                tool_manifest=tool_manifest,
+                tool_host=tool_host,
+                sandbox=sandbox,
+                context=ctx,
+                user_content=user_content,
+            )
 
-        # Seed context to reduce unnecessary tool calls (the model may still call /prefs or /policies)
-        ctx = {
-            "user_tz": self.user.timezone or "UTC",
-            "prefs": {
-                "sleep_start": prefs.sleep_start,
-                "sleep_end": prefs.sleep_end,
-                "min_buffer_min": prefs.min_buffer_min,
-                "default_event_len_min": prefs.default_event_len_min,
-            },
-            "policies": [{"id": p.id, "text": p.text, "active": p.active, "json": p.json} for p in policies],
-            "freebusy_hint": {
-                "first_slots": snapshot.get("first_slots", []),
-            },
-            "dry_run": dry_run,
-        }
+        return await self._run_openai_native_tools(
+            client=client,
+            system_prompt=system_prompt,
+            tool_manifest=tool_manifest,
+            tool_host=tool_host,
+            sandbox=sandbox,
+            context=ctx,
+            user_content=user_content,
+        )
 
-        # Construct user content (supports optional image)
-        if image_url:
-            user_content = [
-                {"type": "text", "text": (text or "").strip() or "See attached image."},
-                {"type": "input_image", "image_url": image_url},
-            ]
-        else:
-            user_content = (text or "").strip() or " "
+    async def _run_openai_native_tools(
+        self,
+        *,
+        client: Any,
+        system_prompt: str,
+        tool_manifest: Dict[str, Any],
+        tool_host: ToolHost,
+        sandbox: SandboxExecutor,
+        context: Dict[str, Any],
+        user_content: Any,
+    ) -> LLMResult:
+        tools_oa, name_map = self._build_tool_registry(tool_manifest, tool_host=tool_host)
 
         messages: List[Dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
-            {"role": "system", "content": "Context (JSON): " + json.dumps(ctx)},
+            {"role": "system", "content": "Context (JSON): " + json.dumps(context)},
             *(
                 [{
                     "role": "system",
                     "content": "Dry-run mode is active. Do not make changes. Inspect state and describe the plan you would execute.",
                 }]
-                if dry_run
+                if context.get("dry_run")
                 else []
             ),
             {"role": "user", "content": user_content},
         ]
 
         op_ids: List[str] = []
-        MAX_STEPS = 8
 
-        for _ in range(MAX_STEPS):
+        for _ in range(self.max_steps):
             resp = await client.chat.completions.create(
                 model=self.model,
                 messages=messages,
@@ -148,75 +158,139 @@ class LLMRouter:
             )
             choice = resp.choices[0]
             msg = choice.message
-
-            # Handle tool calls
             tool_calls = getattr(msg, "tool_calls", None)
             if tool_calls:
-                # Attach the assistant message that requested tools
-                messages.append({"role": "assistant", "content": msg.content or "", "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-                    } for tc in tool_calls
-                ]})
+                messages.append({
+                    "role": "assistant",
+                    "content": msg.content or "",
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                        }
+                        for tc in tool_calls
+                    ],
+                })
 
-                # Execute each tool and append its result to the conversation
                 for tc in tool_calls:
                     fn_name_sanitized = tc.function.name
                     fn_name = name_map.get(fn_name_sanitized, fn_name_sanitized)
-                    args = {}
                     try:
-                        if tc.function.arguments:
-                            args = json.loads(tc.function.arguments)
+                        args = json.loads(tc.function.arguments) if tc.function.arguments else {}
                     except Exception:
                         args = {}
 
-                    # Dispatch to local services
-                    try:
-                        result = await dispatch[fn_name](args)
-                    except Exception as e:  # be robust; feed error back to the model
-                        result = {"error": f"{type(e).__name__}: {e}"}
-
-                    # Collect op_ids if present
-                    _collect_op_ids_from(result, op_ids)
+                    tool_run = await sandbox.execute_tool(
+                        step_id=tc.id,
+                        tool_name=fn_name,
+                        args=args,
+                    )
+                    op_ids.extend(tool_run.op_ids)
+                    result = tool_run.result if tool_run.status == "ok" else {"error": tool_run.error or "Execution failed"}
 
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
                         "content": json.dumps(result, default=_json_default),
                     })
-                # Loop – ask the model again with tool outputs
                 continue
 
-            # No tool calls – end with assistant content
             content = msg.content or ""
-            # If the model didn’t return a summary, fallback to a terse recap of op_ids
             if not content.strip():
                 content = _summary_from_op_ids(op_ids) or "Done."
             return LLMResult(summary=content, op_ids=op_ids)
 
-        # Safety: if we ran out of steps
         return LLMResult(summary=_summary_from_op_ids(op_ids) or "Action complete.", op_ids=op_ids)
+
+    async def _run_openai_sandbox_plan(
+        self,
+        *,
+        client: Any,
+        system_prompt: str,
+        tool_manifest: Dict[str, Any],
+        tool_host: ToolHost,
+        sandbox: SandboxExecutor,
+        context: Dict[str, Any],
+        user_content: Any,
+    ) -> LLMResult:
+        available_tools = self._available_tools(tool_manifest, tool_host=tool_host)
+        planning_messages: List[Dict[str, Any]] = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "system",
+                "content": (
+                    "Generate a JSON sandbox execution plan. Output JSON only.\n"
+                    "Schema:\n"
+                    "{\n"
+                    '  "steps": [\n'
+                    '    {"id": "search", "tool": "calendar.search", "args": {"query": "..." }},\n'
+                    '    {"id": "clarify", "if": {"not": {"len_equals": ["$search.events", 1]}}, "return": {"status": "needs_clarification", "matches": "$search.events"}},\n'
+                    '    {"id": "move", "tool": "calendar.move", "args": {"event_id": "$search.events.0.id", "new_start": "...", "new_end": "..."}},\n'
+                    '    {"id": "done", "return": {"status": "done", "tool_result": "$move"}}\n'
+                    "  ]\n"
+                    "}\n"
+                    "Rules:\n"
+                    "- Use only the available tools.\n"
+                    "- Prefer lookup tools before write tools.\n"
+                    "- If a search can be ambiguous, add a guard return step instead of guessing.\n"
+                    "- Use references like $step_id.field or $step_id.items.0.id.\n"
+                    "- Supported conditions: not, exists, equals, len_equals, len_gte, len_lte, all, any.\n"
+                    "- End with a return object that explains the outcome shape."
+                ),
+            },
+            {"role": "system", "content": "Context (JSON): " + json.dumps(context)},
+            {"role": "system", "content": "Available tools (JSON): " + json.dumps(available_tools)},
+            {"role": "user", "content": user_content},
+        ]
+
+        plan_resp = await client.chat.completions.create(
+            model=self.model,
+            messages=planning_messages,
+            temperature=0.1,
+            response_format={"type": "json_object"},
+        )
+        plan_text = plan_resp.choices[0].message.content or "{}"
+        try:
+            plan = _parse_json_object(plan_text)
+        except Exception as exc:
+            return LLMResult(
+                summary=f"I couldn't build a valid execution plan: {type(exc).__name__}: {exc}",
+                op_ids=[],
+            )
+
+        execution = await sandbox.run_plan(plan, context=context)
+        summary = await self._summarize_sandbox_execution(
+            client=client,
+            system_prompt=system_prompt,
+            context=context,
+            user_content=user_content,
+            available_tools=available_tools,
+            plan=plan,
+            execution=execution,
+        )
+        return LLMResult(summary=summary, op_ids=execution.op_ids)
 
     # Build OpenAI tool registry and dispatcher -----------------------------------------
 
     def _build_tool_registry(
-        self, manifest: Dict[str, Any], *, dry_run: bool = False
-    ) -> tuple[List[Dict[str, Any]], Dict[str, str], Dict[str, Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]]]:
+        self,
+        manifest: Dict[str, Any],
+        *,
+        tool_host: ToolHost,
+    ) -> tuple[List[Dict[str, Any]], Dict[str, str]]:
         """
-        Convert tool_schemas.json to OpenAI tool specs and bind to async handlers.
+        Convert tool_schemas.json to OpenAI tool specs and keep a sanitized name map.
         Returns:
-          (openai_tools, sanitized_name_map, dispatcher)
+          (openai_tools, sanitized_name_map)
         """
         tools = manifest.get("tools", [])
         oa_tools: List[Dict[str, Any]] = []
         name_map: Dict[str, str] = {}  # sanitized -> original
-        dispatch: Dict[str, Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]] = {}
 
         for t in tools:
             original = t["name"]  # e.g., "calendar.create"
-            if dry_run and original not in _READ_ONLY_TOOLS:
+            if not tool_host.is_tool_available(original):
                 continue
             sanitized = _sanitize_name(original)
             name_map[sanitized] = original
@@ -230,259 +304,104 @@ class LLMRouter:
                 },
             })
 
-            # Bind dispatch handler
-            dispatch[original] = self._handler_for(original)
+        return oa_tools, name_map
 
-        return oa_tools, name_map, dispatch
-
-    def _handler_for(self, tool_name: str) -> Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]:
-        """
-        Map tool name to an async handler (calls our services directly).
-        """
-        async def _calendar_freebusy(args: Dict[str, Any]) -> Dict[str, Any]:
-            gcal = GCalClient(self.user)
-            prefs = await gcal.get_prefs()
-            fb = FreeBusyService(gcal=gcal, prefs=prefs)
-            start = _parse_dt(args.get("start"))
-            end = _parse_dt(args.get("end"))
-            free, busy = await fb.query(start, end)
-            # Serialize datetimes to ISO
-            return {
-                "free_windows": [{"start": to_rfc3339(x["start"]), "end": to_rfc3339(x["end"])} for x in free],
-                "busy_windows": [{"start": to_rfc3339(x["start"]), "end": to_rfc3339(x["end"]), "event_id": x.get("event_id")} for x in busy],
-            }
-
-        async def _calendar_list(args: Dict[str, Any]) -> Dict[str, Any]:
-            gcal = GCalClient(self.user)
-            items = await gcal.list_events(
-                _parse_dt(args["start"]),
-                _parse_dt(args["end"]),
-                calendar_id=args.get("calendar_id"),
-                max_results=int(args.get("limit", 20)),
+    def _available_tools(
+        self,
+        manifest: Dict[str, Any],
+        *,
+        tool_host: ToolHost,
+    ) -> List[Dict[str, Any]]:
+        tools: List[Dict[str, Any]] = []
+        for tool in manifest.get("tools", []):
+            if not tool_host.is_tool_available(tool["name"]):
+                continue
+            tools.append(
+                {
+                    "name": tool["name"],
+                    "description": tool.get("description", tool["name"]),
+                    "input_schema": tool.get("input_schema", {"type": "object"}),
+                }
             )
-            return {"events": [summarize_event(item) for item in items]}
+        return tools
 
-        async def _calendar_search(args: Dict[str, Any]) -> Dict[str, Any]:
-            gcal = GCalClient(self.user)
-            now = utcnow()
-            start = _parse_optional_dt(args.get("start")) or (now - timedelta(days=30))
-            end = _parse_optional_dt(args.get("end")) or (now + timedelta(days=90))
-            items = await gcal.search_events(
-                query=str(args["query"]),
-                start=start,
-                end=end,
-                calendar_id=args.get("calendar_id"),
-                max_results=int(args.get("limit", 10)),
-            )
-            return {"events": [summarize_event(item) for item in items]}
-
-        async def _calendar_get(args: Dict[str, Any]) -> Dict[str, Any]:
-            gcal = GCalClient(self.user)
-            event = await gcal.get_event(
-                args["event_id"],
-                calendar_id=args.get("calendar_id"),
-            )
-            if not event:
-                raise ValueError("Event not found")
-            return detail_event(event)
-
-        async def _calendar_create(args: Dict[str, Any]) -> Dict[str, Any]:
-            gcal = GCalClient(self.user)
-            ev = await gcal.create_event(
-                title=args["title"],
-                start=_parse_dt(args["start"]),
-                end=_parse_dt(args["end"]),
-                attendees=args.get("attendees"),
-                location=args.get("location"),
-                notes=args.get("notes"),
-                calendar_id=args.get("calendar_id"),
-                priority=args.get("priority"),
-            )
-            logger = ChangeLogger(self.user)
-            entry = await logger.record_create(after_json=ev)
-            return {"op_id": entry.op_id, "event_id": ev.get("id")}
-
-        async def _calendar_update(args: Dict[str, Any]) -> Dict[str, Any]:
-            gcal = GCalClient(self.user)
-            event_id = args["event_id"]
-            before = await gcal.get_event(event_id)
-            updated = await gcal.update_event(event_id=event_id, patch=args["patch"])
-            logger = ChangeLogger(self.user)
-            entry = await logger.record_update(event_id=event_id, before_json=before or {}, after_json=updated)
-            return {"op_id": entry.op_id, "event_id": event_id}
-
-        async def _calendar_move(args: Dict[str, Any]) -> Dict[str, Any]:
-            gcal = GCalClient(self.user)
-            event_id = args["event_id"]
-            before = await gcal.get_event(event_id)
-            updated = await gcal.update_event(event_id=event_id, patch={"start": _parse_dt(args["new_start"]), "end": _parse_dt(args["new_end"])})
-            logger = ChangeLogger(self.user)
-            entry = await logger.record_update(event_id=event_id, before_json=before or {}, after_json=updated)
-            return {"op_id": entry.op_id, "event_id": event_id}
-
-        async def _calendar_delete(args: Dict[str, Any]) -> Dict[str, Any]:
-            gcal = GCalClient(self.user)
-            event_id = args["event_id"]
-            before = await gcal.get_event(event_id)
-            await gcal.delete_event(event_id)
-            logger = ChangeLogger(self.user)
-            entry = await logger.record_delete(event_id=event_id, before_json=before or {})
-            return {"op_id": entry.op_id}
-
-        async def _calendar_reorg_today(args: Dict[str, Any]) -> Dict[str, Any]:
-            gcal = GCalClient(self.user)
-            prefs = await gcal.get_prefs()
-            svc = ReorgService(gcal=gcal, prefs=prefs)
-            plan = await svc.shift_day(now=_parse_dt(args["now"]), delay_min=int(args["delay_min"]))
-            return {
-                "moved": plan.moved_ids,
-                "trimmed": plan.trimmed_ids,
-                "pushed": plan.pushed_ids,
-                "op_ids": plan.op_ids,
-            }
-
-        async def _tasks_add(args: Dict[str, Any]) -> Dict[str, Any]:
-            svc = TasksService(self.user)
-            due = args.get("due")
-            # If present as string date, leave as-is; service handles defaulting.
-            op_id, task = await svc.add_task(
-                title=args["title"],
-                due=datetime.fromisoformat(due).date() if isinstance(due, str) else None,
-                estimate_min=args.get("estimate_min"),
-            )
-            return {"op_id": op_id, "task": serialize_task_item(task)}
-
-        async def _tasks_list(args: Dict[str, Any]) -> Dict[str, Any]:
-            svc = TasksService(self.user)
-            items = await svc.list_tasks(
-                from_date=_parse_date(args.get("from_date")),
-                to_date=_parse_date(args.get("to_date")),
-            )
-            return {"tasks": [serialize_task_item(task) for task in items]}
-
-        async def _tasks_complete(args: Dict[str, Any]) -> Dict[str, Any]:
-            svc = TasksService(self.user)
-            op_id, task = await svc.complete_task(task_event_id=args["task_event_id"])
-            return {"op_id": op_id, "task": serialize_task_item(task)}
-
-        async def _tasks_update(args: Dict[str, Any]) -> Dict[str, Any]:
-            svc = TasksService(self.user)
-            op_id, task = await svc.update_task(
-                task_event_id=args["task_event_id"],
-                title=args.get("title"),
-                due=_parse_date(args.get("due")),
-                estimate_min=args.get("estimate_min"),
-                status=args.get("status"),
-            )
-            return {"op_id": op_id, "task": serialize_task_item(task)}
-
-        async def _tasks_delete(args: Dict[str, Any]) -> Dict[str, Any]:
-            svc = TasksService(self.user)
-            op_id, task_event_id = await svc.delete_task(task_event_id=args["task_event_id"])
-            return {"op_id": op_id, "task_event_id": task_event_id}
-
-        async def _tasks_schedule(args: Dict[str, Any]) -> Dict[str, Any]:
-            svc = TasksService(self.user)
-            op_id, scheduled_event_id = await svc.schedule_task(
-                task_event_id=args["task_event_id"],
-                start=_parse_dt(args["start"]),
-                end=_parse_optional_dt(args.get("end")),
-                duration_min=args.get("duration_min"),
-                title=args.get("title"),
-                calendar_id=args.get("calendar_id"),
-                priority=args.get("priority"),
-            )
-            return {
-                "op_id": op_id,
-                "task_event_id": args["task_event_id"],
-                "scheduled_event_id": scheduled_event_id,
-            }
-
-        async def _ops_undo(args: Dict[str, Any]) -> Dict[str, Any]:
-            logger = ChangeLogger(self.user)
-            op_id = args.get("op_id")
-            if op_id:
-                ok, restored = await logger.undo(op_id=op_id)
-            else:
-                ok, restored = await logger.undo_last()
-            return {"reverted": bool(ok), "restored_event_id": restored}
-
-        async def _ops_history(args: Dict[str, Any]) -> Dict[str, Any]:
-            logger = ChangeLogger(self.user)
-            items = await logger.list_recent(limit=int(args.get("limit", 20)))
-            return {
-                "items": [
-                    {
-                        "op_id": item.op_id,
-                        "type": item.type.value,
-                        "event_id": item.gcal_event_id,
-                        "timestamp": to_rfc3339(item.timestamp),
-                    }
-                    for item in items
-                ]
-            }
-
-        async def _prefs_get(args: Dict[str, Any]) -> Dict[str, Any]:
-            gcal = GCalClient(self.user)
-            p = await gcal.get_prefs()
-            return {
-                "sleep_start": p.sleep_start,
-                "sleep_end": p.sleep_end,
-                "min_buffer_min": p.min_buffer_min,
-                "default_event_len_min": p.default_event_len_min,
-            }
-
-        async def _prefs_update(args: Dict[str, Any]) -> Dict[str, Any]:
-            gcal = GCalClient(self.user)
-            upd = PrefsUpdate(**args)
-            p = await gcal.update_prefs(upd)
-            return {
-                "sleep_start": p.sleep_start,
-                "sleep_end": p.sleep_end,
-                "min_buffer_min": p.min_buffer_min,
-                "default_event_len_min": p.default_event_len_min,
-            }
-
-        async def _policies_save(args: Dict[str, Any]) -> Dict[str, Any]:
-            store = PolicyStore(self.user)
-            p = await store.create(text=args["text"], json=args.get("json"), active=bool(args.get("active", True)))
-            return {"id": p.id, "text": p.text, "json": p.json, "active": p.active}
-
-        async def _policies_list(args: Dict[str, Any]) -> Dict[str, Any]:
-            store = PolicyStore(self.user)
-            items = await store.list_all()
-            return {"items": [{"id": p.id, "text": p.text, "json": p.json, "active": p.active} for p in items]}
-
-        async def _policies_delete(args: Dict[str, Any]) -> Dict[str, Any]:
-            store = PolicyStore(self.user)
-            p = await store.delete(args["policy_id"])
-            return {"id": p.id, "text": p.text, "json": p.json, "active": p.active}
-
-        mapping: Dict[str, Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]] = {
-            "calendar.freebusy": _calendar_freebusy,
-            "calendar.list": _calendar_list,
-            "calendar.search": _calendar_search,
-            "calendar.get": _calendar_get,
-            "calendar.create": _calendar_create,
-            "calendar.update": _calendar_update,
-            "calendar.move": _calendar_move,
-            "calendar.delete": _calendar_delete,
-            "calendar.reorg_today": _calendar_reorg_today,
-            "tasks.add": _tasks_add,
-            "tasks.list": _tasks_list,
-            "tasks.complete": _tasks_complete,
-            "tasks.update": _tasks_update,
-            "tasks.delete": _tasks_delete,
-            "tasks.schedule": _tasks_schedule,
-            "ops.undo": _ops_undo,
-            "ops.history": _ops_history,
-            "prefs.get": _prefs_get,
-            "prefs.update": _prefs_update,
-            "policies.save": _policies_save,
-            "policies.list": _policies_list,
-            "policies.delete": _policies_delete,
+    def _build_context(
+        self,
+        *,
+        prefs: Prefs,
+        policies: List[Policy],
+        snapshot: Dict[str, Any],
+        dry_run: bool,
+    ) -> Dict[str, Any]:
+        return {
+            "user_tz": self.user.timezone or "UTC",
+            "prefs": {
+                "sleep_start": prefs.sleep_start,
+                "sleep_end": prefs.sleep_end,
+                "min_buffer_min": prefs.min_buffer_min,
+                "default_event_len_min": prefs.default_event_len_min,
+            },
+            "policies": [
+                {"id": p.id, "text": p.text, "active": p.active, "json": p.json}
+                for p in policies
+            ],
+            "freebusy_hint": {
+                "first_slots": snapshot.get("first_slots", []),
+            },
+            "dry_run": dry_run,
         }
-        return mapping
+
+    def _build_user_content(self, *, text: Optional[str], image_url: Optional[str]) -> Any:
+        if image_url:
+            return [
+                {"type": "text", "text": (text or "").strip() or "See attached image."},
+                {"type": "input_image", "image_url": image_url},
+            ]
+        return (text or "").strip() or " "
+
+    async def _summarize_sandbox_execution(
+        self,
+        *,
+        client: Any,
+        system_prompt: str,
+        context: Dict[str, Any],
+        user_content: Any,
+        available_tools: List[Dict[str, Any]],
+        plan: Dict[str, Any],
+        execution: SandboxExecutionResult,
+    ) -> str:
+        if execution.status != "ok":
+            return f"I ran into an execution issue: {execution.error or 'unknown error'}."
+
+        summary_messages: List[Dict[str, Any]] = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "system",
+                "content": (
+                    "You are writing the final user-facing response after a sandbox execution.\n"
+                    "- Only describe changes that actually happened.\n"
+                    "- If the result indicates clarification is needed, ask one concise question.\n"
+                    "- If no write occurred, say that plainly.\n"
+                    "- Keep the response short."
+                ),
+            },
+            {"role": "system", "content": "Context (JSON): " + json.dumps(context)},
+            {"role": "system", "content": "Available tools (JSON): " + json.dumps(available_tools)},
+            {"role": "system", "content": "Executed plan (JSON): " + json.dumps(plan, default=_json_default)},
+            {"role": "system", "content": "Execution result (JSON): " + json.dumps(_execution_to_json(execution), default=_json_default)},
+            {"role": "user", "content": user_content},
+        ]
+        resp = await client.chat.completions.create(
+            model=self.model,
+            messages=summary_messages,
+            temperature=0.2,
+        )
+        content = resp.choices[0].message.content or ""
+        if content.strip():
+            return content
+        if execution.result and isinstance(execution.result, dict) and isinstance(execution.result.get("message"), str):
+            return execution.result["message"]
+        return _summary_from_op_ids(execution.op_ids) or "Done."
 
     # ------------------------------------------------------------------------------------
     # STUB MODE (fallback)
@@ -543,39 +462,46 @@ def _sanitize_name(name: str) -> str:
     """OpenAI function names must be simple identifiers."""
     return re.sub(r"[^a-zA-Z0-9_]", "_", name)
 
-def _parse_dt(val: Any) -> datetime:
-    """Accept ISO 8601 (with Z) or datetime; return datetime."""
-    if isinstance(val, datetime):
-        return val
-    if isinstance(val, str):
-        return from_rfc3339(val)
-    raise ValueError(f"Invalid datetime value: {val!r}")
+def _parse_json_object(text: str) -> Dict[str, Any]:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        cleaned = "\n".join(lines).strip()
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise
+        parsed = json.loads(cleaned[start:end + 1])
+    if not isinstance(parsed, dict):
+        raise ValueError("Expected a JSON object")
+    return parsed
 
-def _parse_optional_dt(val: Any) -> Optional[datetime]:
-    if val is None:
-        return None
-    return _parse_dt(val)
-
-def _parse_date(val: Any) -> Optional[date]:
-    if val is None:
-        return None
-    if isinstance(val, datetime):
-        return val.date()
-    if isinstance(val, date):
-        return val
-    if isinstance(val, str):
-        return datetime.fromisoformat(val).date()
-    raise ValueError(f"Invalid date value: {val!r}")
-
-def _collect_op_ids_from(result: Any, sink: List[str]) -> None:
-    if not isinstance(result, dict):
-        return
-    if "op_id" in result and isinstance(result["op_id"], str):
-        sink.append(result["op_id"])
-    if "op_ids" in result and isinstance(result["op_ids"], list):
-        for oid in result["op_ids"]:
-            if isinstance(oid, str):
-                sink.append(oid)
+def _execution_to_json(execution: SandboxExecutionResult) -> Dict[str, Any]:
+    return {
+        "status": execution.status,
+        "op_ids": execution.op_ids,
+        "result": execution.result,
+        "error": execution.error,
+        "trace": [
+            {
+                "step_id": step.step_id,
+                "kind": step.kind,
+                "tool": step.tool,
+                "args": step.args,
+                "result": step.result,
+                "error": step.error,
+                "skipped": step.skipped,
+            }
+            for step in execution.trace
+        ],
+    }
 
 def _summary_from_op_ids(op_ids: List[str]) -> str:
     if not op_ids:
@@ -592,15 +518,3 @@ def _json_default(o: Any):
     if isinstance(o, datetime):
         return to_rfc3339(o)
     return str(o)
-
-
-_READ_ONLY_TOOLS = {
-    "calendar.freebusy",
-    "calendar.list",
-    "calendar.search",
-    "calendar.get",
-    "tasks.list",
-    "ops.history",
-    "prefs.get",
-    "policies.list",
-}
