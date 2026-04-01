@@ -14,6 +14,7 @@ Planning rules:
 - Respect user preferences and saved policies when choosing times.
 - Save durable preferences with `policies.save` when the user states an ongoing rule or habit.
 - Use `calendar.freebusy` before creating or moving time blocks unless the timing is already explicit and safe.
+- Use `calendar.search` or `calendar.list` to find the right event before updating, moving, or deleting it.
 - When the user asks to undo, use `ops.undo`.
 - When the user shares an image, extract the relevant scheduling details from the image and then use tools as needed.
 
