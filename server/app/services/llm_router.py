@@ -6,19 +6,20 @@ import re
 import json
 from dataclasses import dataclass
 from typing import Optional, List, Any, Dict, Callable, Awaitable
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from app.llm_contract import load_system_prompt, load_tool_schemas
 from app.models.user import User
 from app.models.prefs import Prefs, PrefsUpdate
 from app.models.policy import Policy
+from app.services.calendar_projection import summarize_event
 from app.services.freebusy import FreeBusyService
 from app.services.gcal import GCalClient
 from app.services.undo import ChangeLogger
 from app.services.reorg import ReorgService
-from app.services.tasks_service import TasksService
+from app.services.tasks_service import TasksService, serialize_task_item
 from app.services.policy_store import PolicyStore
-from app.utils import to_rfc3339, from_rfc3339
+from app.utils import to_rfc3339, from_rfc3339, utcnow
 
 # Optional OpenAI dependency (only used if LLM_ROUTER_MODE=openai)
 try:
@@ -231,6 +232,30 @@ class LLMRouter:
                 "busy_windows": [{"start": to_rfc3339(x["start"]), "end": to_rfc3339(x["end"]), "event_id": x.get("event_id")} for x in busy],
             }
 
+        async def _calendar_list(args: Dict[str, Any]) -> Dict[str, Any]:
+            gcal = GCalClient(self.user)
+            items = await gcal.list_events(
+                _parse_dt(args["start"]),
+                _parse_dt(args["end"]),
+                calendar_id=args.get("calendar_id"),
+                max_results=int(args.get("limit", 20)),
+            )
+            return {"events": [summarize_event(item) for item in items]}
+
+        async def _calendar_search(args: Dict[str, Any]) -> Dict[str, Any]:
+            gcal = GCalClient(self.user)
+            now = utcnow()
+            start = _parse_optional_dt(args.get("start")) or (now - timedelta(days=30))
+            end = _parse_optional_dt(args.get("end")) or (now + timedelta(days=90))
+            items = await gcal.search_events(
+                query=str(args["query"]),
+                start=start,
+                end=end,
+                calendar_id=args.get("calendar_id"),
+                max_results=int(args.get("limit", 10)),
+            )
+            return {"events": [summarize_event(item) for item in items]}
+
         async def _calendar_create(args: Dict[str, Any]) -> Dict[str, Any]:
             gcal = GCalClient(self.user)
             ev = await gcal.create_event(
@@ -295,13 +320,20 @@ class LLMRouter:
                 due=datetime.fromisoformat(due).date() if isinstance(due, str) else None,
                 estimate_min=args.get("estimate_min"),
             )
-            return {"op_id": op_id, "task": {
-                "id": task.id,
-                "title": task.title,
-                "due": task.due.isoformat(),
-                "status": task.status,
-                "event_id": task.event_id,
-            }}
+            return {"op_id": op_id, "task": serialize_task_item(task)}
+
+        async def _tasks_list(args: Dict[str, Any]) -> Dict[str, Any]:
+            svc = TasksService(self.user)
+            items = await svc.list_tasks(
+                from_date=_parse_date(args.get("from_date")),
+                to_date=_parse_date(args.get("to_date")),
+            )
+            return {"tasks": [serialize_task_item(task) for task in items]}
+
+        async def _tasks_complete(args: Dict[str, Any]) -> Dict[str, Any]:
+            svc = TasksService(self.user)
+            op_id, task = await svc.complete_task(task_event_id=args["task_event_id"])
+            return {"op_id": op_id, "task": serialize_task_item(task)}
 
         async def _ops_undo(args: Dict[str, Any]) -> Dict[str, Any]:
             logger = ChangeLogger(self.user)
@@ -311,6 +343,21 @@ class LLMRouter:
             else:
                 ok, restored = await logger.undo_last()
             return {"reverted": bool(ok), "restored_event_id": restored}
+
+        async def _ops_history(args: Dict[str, Any]) -> Dict[str, Any]:
+            logger = ChangeLogger(self.user)
+            items = await logger.list_recent(limit=int(args.get("limit", 20)))
+            return {
+                "items": [
+                    {
+                        "op_id": item.op_id,
+                        "type": item.type.value,
+                        "event_id": item.gcal_event_id,
+                        "timestamp": to_rfc3339(item.timestamp),
+                    }
+                    for item in items
+                ]
+            }
 
         async def _prefs_get(args: Dict[str, Any]) -> Dict[str, Any]:
             gcal = GCalClient(self.user)
@@ -350,13 +397,18 @@ class LLMRouter:
 
         mapping: Dict[str, Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]] = {
             "calendar.freebusy": _calendar_freebusy,
+            "calendar.list": _calendar_list,
+            "calendar.search": _calendar_search,
             "calendar.create": _calendar_create,
             "calendar.update": _calendar_update,
             "calendar.move": _calendar_move,
             "calendar.delete": _calendar_delete,
             "calendar.reorg_today": _calendar_reorg_today,
             "tasks.add": _tasks_add,
+            "tasks.list": _tasks_list,
+            "tasks.complete": _tasks_complete,
             "ops.undo": _ops_undo,
+            "ops.history": _ops_history,
             "prefs.get": _prefs_get,
             "prefs.update": _prefs_update,
             "policies.save": _policies_save,
@@ -426,6 +478,22 @@ def _parse_dt(val: Any) -> datetime:
     if isinstance(val, str):
         return from_rfc3339(val)
     raise ValueError(f"Invalid datetime value: {val!r}")
+
+def _parse_optional_dt(val: Any) -> Optional[datetime]:
+    if val is None:
+        return None
+    return _parse_dt(val)
+
+def _parse_date(val: Any) -> Optional[date]:
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        return val.date()
+    if isinstance(val, date):
+        return val
+    if isinstance(val, str):
+        return datetime.fromisoformat(val).date()
+    raise ValueError(f"Invalid date value: {val!r}")
 
 def _collect_op_ids_from(result: Any, sink: List[str]) -> None:
     if not isinstance(result, dict):
