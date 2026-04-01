@@ -19,6 +19,7 @@ from app.models.policy import Policy
 from app.services.gcal import GCalClient
 from app.services.freebusy import FreeBusyService
 from app.services.llm_router import LLMRouter  # orchestrates calls to the model + tool usage
+from app.services.policy_store import PolicyStore
 
 router = APIRouter(prefix="/message", tags=["message"])
 
@@ -50,7 +51,7 @@ async def handle_message(
     # Gather minimal context for the LLM
     gcal = GCalClient(user=user)
     prefs: Prefs = await gcal.get_prefs()  # or read from DB when you implement it
-    policies: list[Policy] = []  # replace with actual fetch from DB
+    policies: list[Policy] = await PolicyStore(user=user).list_all()
 
     # A small free/busy snapshot is often helpful for planning
     fb = FreeBusyService(gcal=gcal)
@@ -64,6 +65,7 @@ async def handle_message(
         prefs=prefs,
         policies=policies,
         freebusy_snapshot=freebusy_snapshot,
+        source=payload.source or "web",
     )
 
     # Expect the LLM router to return a user-facing summary + any op_ids it executed
