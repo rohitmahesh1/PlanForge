@@ -1,0 +1,27 @@
+{
+  "id": "tool_host_calendar_create",
+  "suite": "tool_host",
+  "adapter": "tool_host",
+  "description": "ToolHost should create an event and return the op id plus event id.",
+  "input": {
+    "tool_name": "calendar.create",
+    "args": {
+      "title": "Focus Block",
+      "start": "2026-04-02T15:00:00-04:00",
+      "end": "2026-04-02T15:45:00-04:00",
+      "priority": "routine"
+    },
+    "created_event": {
+      "id": "evt_focus"
+    },
+    "next_op_id": 7
+  },
+  "expected": {
+    "status": "ok",
+    "is_available": true,
+    "op_id_present": true,
+    "event_id": "evt_focus",
+    "result_keys_include": ["op_id", "event_id"]
+  },
+  "tags": ["tool-host", "calendar", "write"]
+}
