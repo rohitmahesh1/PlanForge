@@ -1,0 +1,33 @@
+{
+  "freebusy": {
+    "free_windows": [
+      {
+        "start": "2026-04-02T13:00:00-04:00",
+        "end": "2026-04-02T14:00:00-04:00"
+      }
+    ],
+    "busy_windows": [
+      {
+        "start": "2026-04-02T10:00:00-04:00",
+        "end": "2026-04-02T11:00:00-04:00",
+        "event_id": "evt_chem_recitation"
+      }
+    ]
+  },
+  "events": [
+    {
+      "id": "evt_chem_recitation",
+      "title": "Chem Recitation Prep",
+      "start": "2026-04-02T10:00:00-04:00",
+      "end": "2026-04-02T11:00:00-04:00",
+      "attendees": []
+    }
+  ],
+  "tasks": [
+    {
+      "task_event_id": "task_math_pset",
+      "title": "Math Problem Set",
+      "due": "2026-04-03"
+    }
+  ]
+}
