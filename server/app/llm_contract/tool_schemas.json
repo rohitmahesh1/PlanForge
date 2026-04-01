@@ -11,7 +11,7 @@
         "required": ["start", "end"],
         "properties": {
           "start": { "type": "string", "format": "date-time" },
-          "end":   { "type": "string", "format": "date-time" }
+          "end": { "type": "string", "format": "date-time" }
         }
       },
       "output_schema": {
@@ -19,11 +19,99 @@
         "properties": {
           "free_windows": {
             "type": "array",
-            "items": { "type": "object", "properties": { "start": { "type": "string" }, "end": { "type": "string" } } }
+            "items": {
+              "type": "object",
+              "properties": {
+                "start": { "type": "string" },
+                "end": { "type": "string" }
+              }
+            }
           },
           "busy_windows": {
             "type": "array",
-            "items": { "type": "object", "properties": { "start": { "type": "string" }, "end": { "type": "string" }, "event_id": { "type": "string" } } }
+            "items": {
+              "type": "object",
+              "properties": {
+                "start": { "type": "string" },
+                "end": { "type": "string" },
+                "event_id": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "calendar.list",
+      "method": "POST",
+      "endpoint": "/calendar/list",
+      "input_schema": {
+        "type": "object",
+        "required": ["start", "end"],
+        "properties": {
+          "start": { "type": "string", "format": "date-time" },
+          "end": { "type": "string", "format": "date-time" },
+          "calendar_id": { "type": "string" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "title": { "type": "string" },
+                "start": { "type": "string" },
+                "end": { "type": "string" },
+                "all_day": { "type": "boolean" },
+                "location": { "type": "string" },
+                "attendees": { "type": "array", "items": { "type": "string" } },
+                "priority": { "type": "string" },
+                "status": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "calendar.search",
+      "method": "POST",
+      "endpoint": "/calendar/search",
+      "input_schema": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": { "type": "string" },
+          "start": { "type": "string", "format": "date-time" },
+          "end": { "type": "string", "format": "date-time" },
+          "calendar_id": { "type": "string" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 10 }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "title": { "type": "string" },
+                "start": { "type": "string" },
+                "end": { "type": "string" },
+                "all_day": { "type": "boolean" },
+                "location": { "type": "string" },
+                "attendees": { "type": "array", "items": { "type": "string" } },
+                "priority": { "type": "string" },
+                "status": { "type": "string" }
+              }
+            }
           }
         }
       }
@@ -38,15 +126,21 @@
         "properties": {
           "title": { "type": "string" },
           "start": { "type": "string", "format": "date-time" },
-          "end":   { "type": "string", "format": "date-time" },
+          "end": { "type": "string", "format": "date-time" },
           "attendees": { "type": "array", "items": { "type": "string", "format": "email" } },
-          "location":  { "type": "string" },
-          "notes":     { "type": "string" },
+          "location": { "type": "string" },
+          "notes": { "type": "string" },
           "calendar_id": { "type": "string" },
-          "priority":  { "type": "string", "enum": ["high", "routine"] }
+          "priority": { "type": "string", "enum": ["high", "routine"] }
         }
       },
-      "output_schema": { "type": "object", "properties": { "op_id": { "type": "string" }, "event_id": { "type": "string" } } }
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "op_id": { "type": "string" },
+          "event_id": { "type": "string" }
+        }
+      }
     },
     {
       "name": "calendar.update",
@@ -57,10 +151,16 @@
         "required": ["event_id", "patch"],
         "properties": {
           "event_id": { "type": "string" },
-          "patch":    { "type": "object", "additionalProperties": true }
+          "patch": { "type": "object", "additionalProperties": true }
         }
       },
-      "output_schema": { "type": "object", "properties": { "op_id": { "type": "string" }, "event_id": { "type": "string" } } }
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "op_id": { "type": "string" },
+          "event_id": { "type": "string" }
+        }
+      }
     },
     {
       "name": "calendar.move",
@@ -70,12 +170,18 @@
         "type": "object",
         "required": ["event_id", "new_start", "new_end"],
         "properties": {
-          "event_id":  { "type": "string" },
+          "event_id": { "type": "string" },
           "new_start": { "type": "string", "format": "date-time" },
-          "new_end":   { "type": "string", "format": "date-time" }
+          "new_end": { "type": "string", "format": "date-time" }
         }
       },
-      "output_schema": { "type": "object", "properties": { "op_id": { "type": "string" }, "event_id": { "type": "string" } } }
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "op_id": { "type": "string" },
+          "event_id": { "type": "string" }
+        }
+      }
     },
     {
       "name": "calendar.delete",
@@ -84,9 +190,16 @@
       "input_schema": {
         "type": "object",
         "required": ["event_id"],
-        "properties": { "event_id": { "type": "string" } }
+        "properties": {
+          "event_id": { "type": "string" }
+        }
       },
-      "output_schema": { "type": "object", "properties": { "op_id": { "type": "string" } } }
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "op_id": { "type": "string" }
+        }
+      }
     },
     {
       "name": "calendar.reorg_today",
@@ -96,15 +209,15 @@
         "type": "object",
         "required": ["now", "delay_min"],
         "properties": {
-          "now":       { "type": "string", "format": "date-time" },
+          "now": { "type": "string", "format": "date-time" },
           "delay_min": { "type": "integer", "minimum": 1 }
         }
       },
       "output_schema": {
         "type": "object",
         "properties": {
-          "moved":  { "type": "array", "items": { "type": "string" } },
-          "trimmed":{ "type": "array", "items": { "type": "string" } },
+          "moved": { "type": "array", "items": { "type": "string" } },
+          "trimmed": { "type": "array", "items": { "type": "string" } },
           "pushed": { "type": "array", "items": { "type": "string" } },
           "op_ids": { "type": "array", "items": { "type": "string" } }
         }
@@ -119,11 +232,66 @@
         "required": ["title"],
         "properties": {
           "title": { "type": "string" },
-          "due":   { "type": "string", "format": "date" },
+          "due": { "type": "string", "format": "date" },
           "estimate_min": { "type": "integer", "minimum": 5 }
         }
       },
-      "output_schema": { "type": "object", "properties": { "op_id": { "type": "string" }, "task": { "type": "object" } } }
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "op_id": { "type": "string" },
+          "task": { "type": "object" }
+        }
+      }
+    },
+    {
+      "name": "tasks.list",
+      "method": "GET",
+      "endpoint": "/tasks/list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from_date": { "type": "string", "format": "date" },
+          "to_date": { "type": "string", "format": "date" }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "title": { "type": "string" },
+                "due": { "type": "string" },
+                "status": { "type": "string" },
+                "event_id": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "tasks.complete",
+      "method": "POST",
+      "endpoint": "/tasks/complete",
+      "input_schema": {
+        "type": "object",
+        "required": ["task_event_id"],
+        "properties": {
+          "task_event_id": { "type": "string" }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "op_id": { "type": "string" },
+          "task": { "type": "object" }
+        }
+      }
     },
     {
       "name": "ops.undo",
@@ -131,7 +299,12 @@
       "endpoint": "/ops/undo",
       "input_schema": {
         "type": "object",
-        "properties": { "op_id": { "type": "string", "description": "If omitted, undo most recent" } }
+        "properties": {
+          "op_id": {
+            "type": "string",
+            "description": "If omitted, undo most recent"
+          }
+        }
       },
       "output_schema": {
         "type": "object",
@@ -142,15 +315,46 @@
       }
     },
     {
+      "name": "ops.history",
+      "method": "GET",
+      "endpoint": "/ops/history",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "op_id": { "type": "string" },
+                "type": { "type": "string" },
+                "event_id": { "type": "string" },
+                "timestamp": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "prefs.get",
       "method": "GET",
       "endpoint": "/prefs",
-      "input_schema": { "type": "object", "properties": {} },
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
       "output_schema": {
         "type": "object",
         "properties": {
           "sleep_start": { "type": "string" },
-          "sleep_end":   { "type": "string" },
+          "sleep_end": { "type": "string" },
           "min_buffer_min": { "type": "integer" },
           "default_event_len_min": { "type": "integer" }
         }
@@ -164,12 +368,20 @@
         "type": "object",
         "properties": {
           "sleep_start": { "type": "string" },
-          "sleep_end":   { "type": "string" },
+          "sleep_end": { "type": "string" },
           "min_buffer_min": { "type": "integer" },
           "default_event_len_min": { "type": "integer" }
         }
       },
-      "output_schema": { "$ref": "#/tools/8/output_schema" }
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "sleep_start": { "type": "string" },
+          "sleep_end": { "type": "string" },
+          "min_buffer_min": { "type": "integer" },
+          "default_event_len_min": { "type": "integer" }
+        }
+      }
     },
     {
       "name": "policies.save",
@@ -179,19 +391,41 @@
         "type": "object",
         "required": ["text"],
         "properties": {
-          "text": { "type": "string", "description": "Natural-language durable preference" },
+          "text": {
+            "type": "string",
+            "description": "Natural-language durable preference"
+          },
           "json": { "type": "object", "additionalProperties": true },
           "active": { "type": "boolean", "default": true }
         }
       },
-      "output_schema": { "type": "object", "properties": { "id": { "type": "string" }, "text": { "type": "string" }, "json": { "type": "object" }, "active": { "type": "boolean" } } }
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "text": { "type": "string" },
+          "json": { "type": "object" },
+          "active": { "type": "boolean" }
+        }
+      }
     },
     {
       "name": "policies.list",
       "method": "GET",
       "endpoint": "/policies/list",
-      "input_schema": { "type": "object", "properties": {} },
-      "output_schema": { "type": "object", "properties": { "items": { "type": "array", "items": { "type": "object" } } } }
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": { "type": "object" }
+          }
+        }
+      }
     },
     {
       "name": "policies.delete",
@@ -200,9 +434,19 @@
       "input_schema": {
         "type": "object",
         "required": ["policy_id"],
-        "properties": { "policy_id": { "type": "string" } }
+        "properties": {
+          "policy_id": { "type": "string" }
+        }
       },
-      "output_schema": { "type": "object", "properties": { "id": { "type": "string" }, "text": { "type": "string" }, "json": { "type": "object" }, "active": { "type": "boolean" } } }
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "text": { "type": "string" },
+          "json": { "type": "object" },
+          "active": { "type": "boolean" }
+        }
+      }
     }
   ]
 }
