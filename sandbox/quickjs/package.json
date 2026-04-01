@@ -1,0 +1,11 @@
+{
+  "name": "planforge-quickjs-runner",
+  "private": true,
+  "version": "0.1.0",
+  "description": "QuickJS/WASM sidecar for PlanForge sandbox execution",
+  "main": "runner.js",
+  "license": "MIT",
+  "dependencies": {
+    "quickjs-emscripten": "^0.31.0"
+  }
+}
