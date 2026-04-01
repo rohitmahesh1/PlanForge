@@ -97,8 +97,9 @@ class ChangeLogger:
 
         if row.type == OperationType.CREATE.value:
             event_id = (row.after_json or {}).get("id")
+            calendar_id = _calendar_id_from_event(row.after_json or {})
             if event_id:
-                await gcal.delete_event(event_id)
+                await gcal.delete_event(event_id, calendar_id=calendar_id)
             return True, None
 
         if row.type == OperationType.UPDATE.value:
@@ -107,7 +108,8 @@ class ChangeLogger:
                 return False, None
             # Restore from before_json (full event)
             patch = _patch_from_event(row.before_json or {})
-            await gcal.update_event(event_id=event_id, patch=patch)
+            calendar_id = _calendar_id_from_event(row.before_json or {}) or _calendar_id_from_event(row.after_json or {})
+            await gcal.update_event(event_id=event_id, patch=patch, calendar_id=calendar_id)
             return True, event_id
 
         if row.type == OperationType.DELETE.value:
@@ -187,7 +189,9 @@ async def _recreate_from_full(gcal: GCalClient, ev: Dict[str, Any]) -> Optional[
     location = ev.get("location")
     notes = ev.get("description")
     # Restore private priority if present
-    priority = (ev.get("extendedProperties", {}).get("private", {}) or {}).get("priority")
+    private = (ev.get("extendedProperties", {}).get("private", {}) or {})
+    priority = private.get("priority")
+    calendar_id = _calendar_id_from_event(ev)
 
     created = await gcal.create_event(
         title=title,
@@ -196,7 +200,9 @@ async def _recreate_from_full(gcal: GCalClient, ev: Dict[str, Any]) -> Optional[
         attendees=attendees or None,
         location=location,
         notes=notes,
+        calendar_id=calendar_id,
         priority=priority,
+        private_properties=private,
     )
     return created.get("id")
 
@@ -211,3 +217,13 @@ def _extract_dt(when: Dict[str, Any] | None):
     # For recreation we rely on the event dict 'start'/'end' to include dateTime/timeZone.
     # If only 'date' (all-day), you could choose a default time; MVP ignores all-day recreation nuance.
     return when
+
+
+def _calendar_id_from_event(ev: Dict[str, Any]) -> Optional[str]:
+    organizer = (ev.get("organizer") or {}).get("email")
+    if organizer:
+        return organizer
+    creator = (ev.get("creator") or {}).get("email")
+    if creator:
+        return creator
+    return None
