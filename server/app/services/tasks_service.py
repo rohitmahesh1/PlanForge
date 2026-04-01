@@ -10,7 +10,7 @@ from app.services.gcal import GCalClient, GCAL_BASE
 from app.services.http import http_json
 from app.services.undo import ChangeLogger
 from app.services.timezone import user_now
-from app.utils import to_rfc3339
+from app.services.errors import NotFoundError
 
 
 TASKS_SUMMARY = "Assistant Tasks"
@@ -31,6 +31,8 @@ class TasksService:
     - Add: create all-day event with ⏳ prefix and extendedProperties.private.status='pending'
     - List: read all-day events in range, filter those marked as tasks
     - Complete: flip ⏳ -> ✅ and set status='done'
+    - Update/Delete: patch or remove the underlying all-day task event
+    - Schedule: create a linked work block on the user's primary calendar
     """
 
     def __init__(self, user: User):
@@ -132,7 +134,7 @@ class TasksService:
         headers = await self.gcal._headers()
 
         # Fetch current event to log before/after
-        current = await http_json("GET", f"{GCAL_BASE}/calendars/{cal_id}/events/{task_event_id}", headers=headers)
+        current = await self._get_task_event(task_event_id)
 
         new_summary = _summary_done(current.get("summary") or "")
         extp = (current.get("extendedProperties") or {}).get("private", {}) or {}
@@ -153,6 +155,128 @@ class TasksService:
         entry = await logger.record_update(event_id=task_event_id, before_json=current, after_json=updated)
 
         return entry.op_id, _task_from_event(updated)
+
+    async def update_task(
+        self,
+        *,
+        task_event_id: str,
+        title: Optional[str] = None,
+        due: Optional[date] = None,
+        estimate_min: Optional[int] = None,
+        status: Optional[str] = None,
+    ) -> tuple[str, TaskItem]:
+        cal_id = await self.ensure_tasks_calendar()
+        headers = await self.gcal._headers()
+        current = await self._get_task_event(task_event_id)
+        current_task = _task_from_event(current)
+
+        next_status = status or current_task.status
+        next_title = title or current_task.title
+        patch: Dict[str, Any] = {
+            "summary": _summary_with_status(next_title, next_status),
+        }
+
+        if due is not None:
+            patch["start"] = {"date": due.isoformat()}
+            patch["end"] = {"date": (due + timedelta(days=1)).isoformat()}
+
+        extp = (current.get("extendedProperties") or {}).get("private", {}) or {}
+        extp["task"] = "1"
+        extp["status"] = next_status
+        if estimate_min is not None:
+            extp["estimate_min"] = str(int(estimate_min))
+        patch["extendedProperties"] = {"private": extp}
+
+        updated = await http_json(
+            "PATCH",
+            f"{GCAL_BASE}/calendars/{cal_id}/events/{task_event_id}",
+            headers=headers,
+            json=patch,
+        )
+
+        logger = ChangeLogger(self.user)
+        entry = await logger.record_update(
+            event_id=task_event_id,
+            before_json=current,
+            after_json=updated,
+        )
+        return entry.op_id, _task_from_event(updated)
+
+    async def delete_task(self, *, task_event_id: str) -> tuple[str, str]:
+        cal_id = await self.ensure_tasks_calendar()
+        headers = await self.gcal._headers()
+        current = await self._get_task_event(task_event_id)
+
+        await http_json(
+            "DELETE",
+            f"{GCAL_BASE}/calendars/{cal_id}/events/{task_event_id}",
+            headers=headers,
+        )
+
+        logger = ChangeLogger(self.user)
+        entry = await logger.record_delete(event_id=task_event_id, before_json=current)
+        return entry.op_id, task_event_id
+
+    async def schedule_task(
+        self,
+        *,
+        task_event_id: str,
+        start: datetime,
+        end: Optional[datetime] = None,
+        duration_min: Optional[int] = None,
+        title: Optional[str] = None,
+        calendar_id: Optional[str] = None,
+        priority: Optional[str] = None,
+    ) -> tuple[str, str]:
+        current = await self._get_task_event(task_event_id)
+        task = _task_from_event(current)
+        prefs = await self.gcal.get_prefs()
+        extp = (current.get("extendedProperties") or {}).get("private", {}) or {}
+
+        effective_duration = duration_min
+        if effective_duration is None:
+            raw_estimate = extp.get("estimate_min")
+            try:
+                effective_duration = int(raw_estimate) if raw_estimate is not None else None
+            except (TypeError, ValueError):
+                effective_duration = None
+        if effective_duration is None:
+            effective_duration = prefs.default_event_len_min
+
+        scheduled_end = end or (start + timedelta(minutes=max(5, int(effective_duration))))
+        event_title = title or f"Work on: {task.title}"
+        notes = f"Linked task event: {task_event_id}"
+
+        created = await self.gcal.create_event(
+            title=event_title,
+            start=start,
+            end=scheduled_end,
+            notes=notes,
+            calendar_id=calendar_id,
+            priority=priority or "routine",
+            private_properties={"linked_task_event_id": task_event_id},
+        )
+
+        logger = ChangeLogger(self.user)
+        entry = await logger.record_create(after_json=created)
+        return entry.op_id, created.get("id") or ""
+
+    async def _get_task_event(self, task_event_id: str) -> Dict[str, Any]:
+        cal_id = await self.ensure_tasks_calendar()
+        headers = await self.gcal._headers()
+        try:
+            event = await http_json(
+                "GET",
+                f"{GCAL_BASE}/calendars/{cal_id}/events/{task_event_id}",
+                headers=headers,
+            )
+        except Exception as exc:
+            if "404" in str(exc):
+                raise NotFoundError("Task not found") from exc
+            raise
+        if not _is_task_event(event):
+            raise NotFoundError("Task not found")
+        return event
 
 
 # -------------------------
@@ -201,6 +325,13 @@ def _summary_done(summary: str) -> str:
     if s.startswith("✅"):
         return s  # already done
     return "✅ " + s
+
+
+def _summary_with_status(title: str, status: str) -> str:
+    clean = title.strip()
+    if status == "done":
+        return f"✅ {clean}"
+    return f"⏳ {clean}"
 
 
 def serialize_task_item(task: TaskItem) -> Dict[str, Any]:
