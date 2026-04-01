@@ -1,0 +1,21 @@
+{
+  "id": "workflow_task_schedule",
+  "suite": "workflow",
+  "adapter": "workflow_heuristic",
+  "description": "Task scheduling requests should route through task management with calendar support.",
+  "input": {
+    "text": "Schedule my math problem set for Friday morning.",
+    "source": "web",
+    "dry_run": false
+  },
+  "expected": {
+    "intent": "manage_task",
+    "workflow": "task_management",
+    "needs_lookup": true,
+    "expects_write": true,
+    "confidence_in": ["medium", "high"],
+    "allowed_tools_include": ["tasks.list", "tasks.schedule", "calendar.freebusy"],
+    "primary_tools_include": ["tasks.schedule", "calendar.freebusy"]
+  },
+  "tags": ["task", "calendar"]
+}
