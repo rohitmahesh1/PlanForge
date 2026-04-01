@@ -1,129 +1,144 @@
 @startuml
-title PlanForge Codebase Overview
+title PlanForge Architecture
+caption Workflow-aware scheduling backend
 
-left to right direction
+top to bottom direction
+skinparam backgroundColor #F7F4EC
 skinparam shadowing false
+skinparam roundCorner 18
 skinparam packageStyle rectangle
 skinparam componentStyle rectangle
+skinparam linetype ortho
 skinparam ArrowColor #5B6470
-skinparam PackageBorderColor #5B6470
-skinparam PackageFontColor #1F2933
-skinparam ComponentBorderColor #5B6470
-skinparam ComponentFontColor #1F2933
-skinparam DatabaseBorderColor #5B6470
-skinparam DatabaseFontColor #1F2933
-skinparam NoteBorderColor #8C94A3
+skinparam ArrowThickness 1.2
+skinparam ArrowFontColor #344054
+skinparam ArrowFontSize 11
+skinparam PackageBorderColor #6B7280
+skinparam PackageFontColor #111827
+skinparam PackageFontStyle bold
+skinparam ComponentBorderColor #6B7280
+skinparam ComponentFontColor #111827
+skinparam ComponentBackgroundColor #FFFFFF
+skinparam DatabaseBorderColor #8B5E00
+skinparam DatabaseBackgroundColor #FFF1BF
+skinparam DatabaseFontColor #111827
+skinparam CloudBorderColor #667085
+skinparam CloudBackgroundColor #EAF2FF
+skinparam CloudFontColor #111827
+skinparam NoteBorderColor #C2A34A
+skinparam NoteBackgroundColor #FFF7D6
+skinparam LegendBorderColor #CBD5E1
+skinparam LegendBackgroundColor #FFFFFF
+
+skinparam package<<entry>> BackgroundColor #EAF2FF
+skinparam package<<planning>> BackgroundColor #EEF8EF
+skinparam package<<execution>> BackgroundColor #FFF2E8
+skinparam package<<domain>> BackgroundColor #F3EEFF
+skinparam package<<platform>> BackgroundColor #F6F7F9
+skinparam package<<quality>> BackgroundColor #EAF8FA
 
 actor "Clients\nWeb / Telegram / Twilio" as Clients
 
-package "FastAPI App\nserver/main.py" as App {
-  package "API Routers\nserver/app/api" as Api {
-    [message.py] as MessageApi
-    [calendar.py] as CalendarApi
-    [tasks.py] as TasksApi
-    [prefs.py] as PrefsApi
-    [policies.py] as PoliciesApi
-    [ops.py] as OpsApi
+package "Entry Layer" <<entry>> {
+  [message.py\nConversation ingress] as MessageApi
+  [calendar.py\nCalendar endpoints] as CalendarApi
+  [tasks.py\nTask endpoints] as TasksApi
+  [prefs.py / policies.py / ops.py\nUser state endpoints] as StateApis
+  [google_oauth.py\nRequest auth] as Auth
+  [config.py\nRuntime settings] as Config
+}
+
+package "Planning Layer" <<planning>> {
+  [IngressContextService\nLoad prefs, policies, snapshot] as Ingress
+  [AgentWorkflowService\nClassify request + workflow] as Workflows
+  [LLMRouter\nPrompt, plan, summarize] as Router
+  [LLM Contract\nsystem_prompt.md\ntool_schemas.json] as Contract
+}
+
+together {
+  package "Execution Layer" <<execution>> {
+    [ToolHost\nUnified tool boundary] as ToolHost
+    [SandboxExecutor\nNative or sandbox plan execution] as SandboxExec
+    [SandboxRuntimeClient\nNDJSON bridge] as RuntimeClient
   }
 
-  package "Auth + Config" as AuthConfig {
-    [google_oauth.py] as Auth
-    [config.py] as Config
+  package "Sandbox Sidecar" <<execution>> {
+    [runner.js\nQuickJS/WASM runtime] as Runner
+    [plan_runtime.js\nConstrained plan interpreter] as PlanRuntime
   }
+}
 
-  package "Planning + Execution Services\nserver/app/services" as Services {
-    [IngressContextService] as Ingress
-    [AgentWorkflowService] as Workflows
-    [LLMRouter] as Router
-    [ToolHost] as ToolHost
-    [SandboxExecutor] as SandboxExec
-    [SandboxRuntimeClient] as RuntimeClient
-    [FreeBusyService] as FreeBusy
-    [GCalClient] as GCalClient
-    [TasksService] as TasksService
-    [PolicyStore] as PolicyStore
-    [ReorgService] as ReorgService
-    [ChangeLogger] as ChangeLogger
-    [calendar_projection.py] as Projection
-  }
+package "Domain Services" <<domain>> {
+  [GCalClient\nGoogle Calendar access] as GCalClient
+  [FreeBusyService\nAvailability windows] as FreeBusy
+  [TasksService\nTask lifecycle + scheduling] as TasksService
+  [PolicyStore\nDurable scheduling rules] as PolicyStore
+  [ReorgService\nRepair the day after delays] as ReorgService
+  [ChangeLogger\nUndo + operation history] as ChangeLogger
+  [calendar_projection.py\nEvent shaping] as Projection
+}
 
-  package "LLM Contract\nserver/app/llm_contract" as Contract {
-    [system_prompt.md] as SystemPrompt
-    [tool_schemas.json] as ToolSchemas
-    [tools_manifest.md] as ToolsManifest
-  }
-
-  package "Models + Persistence" as Persistence {
+together {
+  package "Persistence + External Systems" <<platform>> {
     [SQLAlchemy Models\nuser / prefs / policy / changelog] as Models
-    [Alembic Migrations] as Alembic
+    [Alembic\nSchema migrations] as Alembic
     database "SQLite / DATABASE_URL" as Database
+    cloud "Google Calendar API" as GoogleCalendar
+    cloud "OpenAI API" as OpenAI
+  }
+
+  package "Quality Layer" <<quality>> {
+    [evals/runner.py\nSuite orchestration] as EvalRunner
+    [eval adapters + cases\nDeterministic and live coverage] as EvalCases
+    [baseline.py + reports\nRegression baselines] as EvalBaseline
+    [.github/workflows/evals.yml\nCI regression gate] as EvalCI
   }
 }
-
-package "Sandbox Sidecar\nsandbox/quickjs" as SandboxSidecar {
-  [runner.js] as Runner
-  [plan_runtime.js] as PlanRuntime
-}
-
-package "Eval Harness\n./evals" as Evals {
-  [runner.py] as EvalRunner
-  [adapters/*] as EvalAdapters
-  [cases/*] as EvalCases
-  [baseline.py] as EvalBaseline
-  [reports/*] as EvalReports
-}
-
-[.github/workflows/evals.yml] as EvalCI
-
-cloud "OpenAI API" as OpenAI
-cloud "Google Calendar API" as GoogleCalendar
 
 Clients --> MessageApi : scheduling requests
 Clients --> CalendarApi
 Clients --> TasksApi
-Clients --> PrefsApi
-Clients --> PoliciesApi
-Clients --> OpsApi
+Clients --> StateApis
 
 MessageApi --> Auth
 CalendarApi --> Auth
 TasksApi --> Auth
-PrefsApi --> Auth
-PoliciesApi --> Auth
-OpsApi --> Auth
+StateApis --> Auth
+MessageApi --> Config
 
-App --> Config
-App --> MessageApi
-App --> CalendarApi
-App --> TasksApi
-App --> PrefsApi
-App --> PoliciesApi
-App --> OpsApi
-
-MessageApi --> Ingress : build request context
-MessageApi --> Router : process_message()
+MessageApi --> Ingress : shared planning context
+MessageApi --> Router : process request
 Ingress --> GCalClient
 Ingress --> PolicyStore
 Ingress --> FreeBusy
 
-Router --> Workflows : classify request
-Router --> Contract : load prompts + tool schemas
-Router --> ToolHost : native tools
-Router --> SandboxExec : sandbox plan execution
-Router --> OpenAI : classify, plan, summarize
+Router --> Workflows : classify
+Router --> Contract : prompt + tools
+Router --> ToolHost : direct tool calls
+Router --> SandboxExec : sandbox_plan mode
+Router --> OpenAI : classify / plan / summarize
 
 SandboxExec --> ToolHost : execute tool steps
-SandboxExec --> RuntimeClient : quickjs_plan backend
-RuntimeClient <--> Runner : NDJSON protocol
+SandboxExec --> RuntimeClient : quickjs_plan
+RuntimeClient <--> Runner : session protocol
 Runner --> PlanRuntime : execute plan
 Runner --> ToolHost : host tool bridge
 
+CalendarApi --> GCalClient
+CalendarApi --> FreeBusy
+CalendarApi --> ReorgService
+CalendarApi --> ChangeLogger
+TasksApi --> TasksService
+StateApis --> PolicyStore
+StateApis --> GCalClient
+StateApis --> ChangeLogger
+
 ToolHost --> GCalClient
+ToolHost --> FreeBusy
 ToolHost --> TasksService
 ToolHost --> PolicyStore
 ToolHost --> ReorgService
 ToolHost --> ChangeLogger
-ToolHost --> FreeBusy
 ToolHost --> Projection
 
 GCalClient --> GoogleCalendar
@@ -133,29 +148,42 @@ ChangeLogger --> Database
 Models --> Database
 Alembic --> Database
 
-EvalRunner --> EvalAdapters
 EvalRunner --> EvalCases
-EvalRunner --> EvalReports
-EvalBaseline --> EvalReports
+EvalBaseline --> EvalRunner
 EvalCI --> EvalRunner
 EvalCI --> EvalBaseline
+EvalCases ..> Workflows
+EvalCases ..> Router
+EvalCases ..> SandboxExec
+EvalCases ..> ToolHost
 
-note bottom of Router
-Classifies each request into a workflow,
-restricts tool access, and records a
-workflow trace for the response.
+note right of Router
+Workflow-aware orchestration keeps
+intent classification, planning,
+execution, and response tracing
+in one coherent loop.
 end note
 
-note bottom of ToolHost
-Single host-side boundary for calendar,
-task, policy, preference, reorg,
-and undo operations.
+note right of ToolHost
+All calendar, task, policy,
+preference, reorg, and undo
+operations pass through one
+host-side execution boundary.
 end note
 
-note bottom of SandboxSidecar
-QuickJS/WASM executes JSON plans while
-calling back into Python through the
-runtime client and ToolHost bridge.
+note right of Runner
+QuickJS/WASM executes constrained
+plans while Python retains control
+over tool access and persistent state.
 end note
+
+legend right
+|= Layer |= Role |
+| Entry | HTTP ingress, auth, and API surfaces |
+| Planning | Intent classification and orchestration |
+| Execution | Tool boundary and sandbox control |
+| Domain | Scheduling behavior and business logic |
+| Quality | Evals, baselines, and CI regression gates |
+endlegend
 
 @enduml
