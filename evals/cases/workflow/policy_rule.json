@@ -1,0 +1,21 @@
+{
+  "id": "workflow_policy_rule",
+  "suite": "workflow",
+  "adapter": "workflow_heuristic",
+  "description": "Durable scheduling rules should go through policy management.",
+  "input": {
+    "text": "Always leave 20 minutes between classes.",
+    "source": "web",
+    "dry_run": false
+  },
+  "expected": {
+    "intent": "update_policy",
+    "workflow": "policy_management",
+    "needs_lookup": false,
+    "expects_write": true,
+    "confidence_in": ["medium", "high"],
+    "allowed_tools_include": ["policies.save", "policies.list"],
+    "primary_tools_include": ["policies.save"]
+  },
+  "tags": ["policy"]
+}
