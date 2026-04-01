@@ -27,11 +27,26 @@ def build_markdown_report(results: List[EvalResult]) -> str:
         f"- Avg latency: {avg_latency} ms",
         f"- Estimated cost: ${total_cost:.6f}",
         "",
+        "## Modes",
+        "",
+        "| Mode | Cases | Passed | Failed | Avg latency (ms) | Estimated cost |",
+        "| --- | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for mode_name, summary in sorted(_mode_summary(results).items()):
+        lines.append(
+            f"| `{mode_name}` | {summary['cases']} | {summary['passed']} | {summary['failed']} | "
+            f"{summary['avg_latency_ms']} | ${summary['estimated_cost_usd']:.6f} |"
+        )
+
+    lines.extend(
+        [
+            "",
         "## Suites",
         "",
         "| Suite | Cases | Passed | Failed | Avg latency (ms) | Estimated cost |",
         "| --- | ---: | ---: | ---: | ---: | ---: |",
-    ]
+        ]
+    )
     for suite_name, summary in sorted(_suite_summary(results).items()):
         lines.append(
             f"| `{suite_name}` | {summary['cases']} | {summary['passed']} | {summary['failed']} | "
@@ -66,6 +81,7 @@ def write_report_artifacts(report_dir: Path, results: List[EvalResult]) -> Dict[
             "cases": len(results),
             "passed": sum(1 for result in results if result.passed),
             "failed": sum(1 for result in results if not result.passed),
+            "mode_summary": _mode_summary(results),
             "suite_summary": _suite_summary(results),
         },
         "results": [result.to_dict() for result in results],
@@ -101,11 +117,19 @@ def _result_note(result: EvalResult) -> str:
 
 
 def _suite_summary(results: List[EvalResult]) -> Dict[str, Dict[str, float]]:
+    return _group_summary(results, key_fn=lambda result: result.case.suite)
+
+
+def _mode_summary(results: List[EvalResult]) -> Dict[str, Dict[str, float]]:
+    return _group_summary(results, key_fn=lambda result: result.case.mode)
+
+
+def _group_summary(results: List[EvalResult], key_fn) -> Dict[str, Dict[str, float]]:
     summary: Dict[str, Dict[str, float]] = {}
     for result in results:
-        suite = result.case.suite
-        suite_summary = summary.setdefault(
-            suite,
+        group_name = key_fn(result)
+        group_summary = summary.setdefault(
+            group_name,
             {
                 "cases": 0,
                 "passed": 0,
@@ -114,15 +138,15 @@ def _suite_summary(results: List[EvalResult]) -> Dict[str, Dict[str, float]]:
                 "estimated_cost_usd": 0.0,
             },
         )
-        suite_summary["cases"] += 1
-        suite_summary["passed"] += 1 if result.passed else 0
-        suite_summary["failed"] += 0 if result.passed else 1
-        suite_summary["latency_total_ms"] += result.metrics.latency_ms
-        suite_summary["estimated_cost_usd"] += result.metrics.estimated_cost_usd
+        group_summary["cases"] += 1
+        group_summary["passed"] += 1 if result.passed else 0
+        group_summary["failed"] += 0 if result.passed else 1
+        group_summary["latency_total_ms"] += result.metrics.latency_ms
+        group_summary["estimated_cost_usd"] += result.metrics.estimated_cost_usd
 
-    for suite_summary in summary.values():
-        cases = suite_summary["cases"] or 1
-        suite_summary["avg_latency_ms"] = round(suite_summary["latency_total_ms"] / cases, 1)
-        suite_summary.pop("latency_total_ms", None)
+    for group_summary in summary.values():
+        cases = group_summary["cases"] or 1
+        group_summary["avg_latency_ms"] = round(group_summary["latency_total_ms"] / cases, 1)
+        group_summary.pop("latency_total_ms", None)
 
     return summary
