@@ -7,7 +7,12 @@ from typing import Iterable, List, Optional
 from evals.models import EvalCase
 
 
-def load_cases(root: Path, *, suite: Optional[str] = None) -> List[EvalCase]:
+def load_cases(
+    root: Path,
+    *,
+    suite: Optional[str] = None,
+    include_live: bool = False,
+) -> List[EvalCase]:
     cases: List[EvalCase] = []
     for path in sorted(root.rglob("*.json")):
         with path.open("r", encoding="utf-8") as handle:
@@ -17,12 +22,15 @@ def load_cases(root: Path, *, suite: Optional[str] = None) -> List[EvalCase]:
             id=str(payload["id"]),
             suite=str(payload["suite"]),
             adapter=str(payload["adapter"]),
+            mode=str(payload.get("mode", "deterministic")),
             description=str(payload["description"]),
             input=dict(payload.get("input", {})),
             expected=dict(payload.get("expected", {})),
             tags=[str(tag) for tag in payload.get("tags", [])],
         )
         if suite and case.suite != suite:
+            continue
+        if case.mode == "live" and not include_live:
             continue
         cases.append(case)
     return cases
