@@ -12,7 +12,7 @@ from app.llm_contract import load_system_prompt, load_tool_schemas
 from app.models.user import User
 from app.models.prefs import Prefs, PrefsUpdate
 from app.models.policy import Policy
-from app.services.calendar_projection import summarize_event
+from app.services.calendar_projection import detail_event, summarize_event
 from app.services.freebusy import FreeBusyService
 from app.services.gcal import GCalClient
 from app.services.undo import ChangeLogger
@@ -58,11 +58,19 @@ class LLMRouter:
         policies: List[Policy],
         freebusy_snapshot: Dict[str, Any],
         source: Optional[str] = None,
+        dry_run: bool = False,
     ) -> LLMResult:
         if self.mode == "openai" and _HAS_OPENAI and os.getenv("OPENAI_API_KEY"):
-            return await self._run_openai(text=text, image_url=image_url, prefs=prefs, policies=policies, snapshot=freebusy_snapshot)
+            return await self._run_openai(
+                text=text,
+                image_url=image_url,
+                prefs=prefs,
+                policies=policies,
+                snapshot=freebusy_snapshot,
+                dry_run=dry_run,
+            )
         # fallback stub
-        return await self._run_stub(text=text, image_url=image_url, prefs=prefs)
+        return await self._run_stub(text=text, image_url=image_url, prefs=prefs, dry_run=dry_run)
 
     # ------------------------------------------------------------------------------------
     # OPENAI TOOL-CALLING IMPLEMENTATION
@@ -76,6 +84,7 @@ class LLMRouter:
         prefs: Prefs,
         policies: List[Policy],
         snapshot: Dict[str, Any],
+        dry_run: bool,
     ) -> LLMResult:
         """
         Uses OpenAI Chat Completions with tools that map to local service calls.
@@ -85,7 +94,7 @@ class LLMRouter:
         tool_manifest = load_tool_schemas()
 
         # Build tool registry: OpenAI function specs + dispatcher map
-        tools_oa, name_map, dispatch = self._build_tool_registry(tool_manifest)
+        tools_oa, name_map, dispatch = self._build_tool_registry(tool_manifest, dry_run=dry_run)
 
         # Seed context to reduce unnecessary tool calls (the model may still call /prefs or /policies)
         ctx = {
@@ -100,6 +109,7 @@ class LLMRouter:
             "freebusy_hint": {
                 "first_slots": snapshot.get("first_slots", []),
             },
+            "dry_run": dry_run,
         }
 
         # Construct user content (supports optional image)
@@ -114,6 +124,14 @@ class LLMRouter:
         messages: List[Dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
             {"role": "system", "content": "Context (JSON): " + json.dumps(ctx)},
+            *(
+                [{
+                    "role": "system",
+                    "content": "Dry-run mode is active. Do not make changes. Inspect state and describe the plan you would execute.",
+                }]
+                if dry_run
+                else []
+            ),
             {"role": "user", "content": user_content},
         ]
 
@@ -184,7 +202,7 @@ class LLMRouter:
     # Build OpenAI tool registry and dispatcher -----------------------------------------
 
     def _build_tool_registry(
-        self, manifest: Dict[str, Any]
+        self, manifest: Dict[str, Any], *, dry_run: bool = False
     ) -> tuple[List[Dict[str, Any]], Dict[str, str], Dict[str, Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]]]:
         """
         Convert tool_schemas.json to OpenAI tool specs and bind to async handlers.
@@ -198,6 +216,8 @@ class LLMRouter:
 
         for t in tools:
             original = t["name"]  # e.g., "calendar.create"
+            if dry_run and original not in _READ_ONLY_TOOLS:
+                continue
             sanitized = _sanitize_name(original)
             name_map[sanitized] = original
 
@@ -255,6 +275,16 @@ class LLMRouter:
                 max_results=int(args.get("limit", 10)),
             )
             return {"events": [summarize_event(item) for item in items]}
+
+        async def _calendar_get(args: Dict[str, Any]) -> Dict[str, Any]:
+            gcal = GCalClient(self.user)
+            event = await gcal.get_event(
+                args["event_id"],
+                calendar_id=args.get("calendar_id"),
+            )
+            if not event:
+                raise ValueError("Event not found")
+            return detail_event(event)
 
         async def _calendar_create(args: Dict[str, Any]) -> Dict[str, Any]:
             gcal = GCalClient(self.user)
@@ -335,6 +365,39 @@ class LLMRouter:
             op_id, task = await svc.complete_task(task_event_id=args["task_event_id"])
             return {"op_id": op_id, "task": serialize_task_item(task)}
 
+        async def _tasks_update(args: Dict[str, Any]) -> Dict[str, Any]:
+            svc = TasksService(self.user)
+            op_id, task = await svc.update_task(
+                task_event_id=args["task_event_id"],
+                title=args.get("title"),
+                due=_parse_date(args.get("due")),
+                estimate_min=args.get("estimate_min"),
+                status=args.get("status"),
+            )
+            return {"op_id": op_id, "task": serialize_task_item(task)}
+
+        async def _tasks_delete(args: Dict[str, Any]) -> Dict[str, Any]:
+            svc = TasksService(self.user)
+            op_id, task_event_id = await svc.delete_task(task_event_id=args["task_event_id"])
+            return {"op_id": op_id, "task_event_id": task_event_id}
+
+        async def _tasks_schedule(args: Dict[str, Any]) -> Dict[str, Any]:
+            svc = TasksService(self.user)
+            op_id, scheduled_event_id = await svc.schedule_task(
+                task_event_id=args["task_event_id"],
+                start=_parse_dt(args["start"]),
+                end=_parse_optional_dt(args.get("end")),
+                duration_min=args.get("duration_min"),
+                title=args.get("title"),
+                calendar_id=args.get("calendar_id"),
+                priority=args.get("priority"),
+            )
+            return {
+                "op_id": op_id,
+                "task_event_id": args["task_event_id"],
+                "scheduled_event_id": scheduled_event_id,
+            }
+
         async def _ops_undo(args: Dict[str, Any]) -> Dict[str, Any]:
             logger = ChangeLogger(self.user)
             op_id = args.get("op_id")
@@ -399,6 +462,7 @@ class LLMRouter:
             "calendar.freebusy": _calendar_freebusy,
             "calendar.list": _calendar_list,
             "calendar.search": _calendar_search,
+            "calendar.get": _calendar_get,
             "calendar.create": _calendar_create,
             "calendar.update": _calendar_update,
             "calendar.move": _calendar_move,
@@ -407,6 +471,9 @@ class LLMRouter:
             "tasks.add": _tasks_add,
             "tasks.list": _tasks_list,
             "tasks.complete": _tasks_complete,
+            "tasks.update": _tasks_update,
+            "tasks.delete": _tasks_delete,
+            "tasks.schedule": _tasks_schedule,
             "ops.undo": _ops_undo,
             "ops.history": _ops_history,
             "prefs.get": _prefs_get,
@@ -421,11 +488,13 @@ class LLMRouter:
     # STUB MODE (fallback)
     # ------------------------------------------------------------------------------------
 
-    async def _run_stub(self, *, text: Optional[str], image_url: Optional[str], prefs: Prefs) -> LLMResult:
+    async def _run_stub(self, *, text: Optional[str], image_url: Optional[str], prefs: Prefs, dry_run: bool) -> LLMResult:
         t = (text or "").strip().lower()
 
         # Undo
         if re.search(r"\bundo\b", t):
+            if dry_run:
+                return LLMResult(summary="Dry run: would undo your most recent change.", op_ids=[])
             logger = ChangeLogger(self.user)
             ok, restored_id = await logger.undo_last()
             if ok:
@@ -450,16 +519,19 @@ class LLMRouter:
         m = re.search(r"(overslept|slept in)\s+(\d+)", t)
         if m:
             mins = int(m.group(2))
+            prefix = "Dry run: " if dry_run else ""
             return LLMResult(
-                summary=f"Got it — would reorganize routine items by {mins} minutes (preserving meetings and sleep).",
+                summary=f"{prefix}Got it — would reorganize routine items by {mins} minutes (preserving meetings and sleep).",
                 op_ids=[],
             )
 
         # Fallback
         if t:
-            return LLMResult(summary=f"Noted: “{text}”. No changes yet (dev stub).", op_ids=[])
+            prefix = "Dry run: " if dry_run else ""
+            return LLMResult(summary=f"{prefix}Noted: “{text}”. No changes yet (dev stub).", op_ids=[])
         if image_url:
-            return LLMResult(summary="Received your screenshot. OCR + scheduling is coming next.", op_ids=[])
+            prefix = "Dry run: " if dry_run else ""
+            return LLMResult(summary=f"{prefix}Received your screenshot. OCR + scheduling is coming next.", op_ids=[])
         return LLMResult(summary="How can I help with your schedule?", op_ids=[])
 
 
@@ -520,3 +592,15 @@ def _json_default(o: Any):
     if isinstance(o, datetime):
         return to_rfc3339(o)
     return str(o)
+
+
+_READ_ONLY_TOOLS = {
+    "calendar.freebusy",
+    "calendar.list",
+    "calendar.search",
+    "calendar.get",
+    "tasks.list",
+    "ops.history",
+    "prefs.get",
+    "policies.list",
+}
