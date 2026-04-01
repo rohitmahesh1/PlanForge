@@ -1,0 +1,18 @@
+{
+  "id": "router_stub_image_fallback",
+  "suite": "router_stub",
+  "adapter": "router_stub",
+  "description": "Image-only requests should route through image intake and explain the stub limitation clearly.",
+  "input": {
+    "image_url": "https://example.com/schedule.png",
+    "source": "web"
+  },
+  "expected": {
+    "intent": "process_schedule_image",
+    "workflow": "image_schedule_intake",
+    "trace_status": "completed",
+    "result_kind": "image_schedule_intake",
+    "summary_contains": "Image-driven scheduling is ready in OpenAI mode"
+  },
+  "tags": ["router", "stub", "image"]
+}
