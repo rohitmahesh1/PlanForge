@@ -1,0 +1,37 @@
+{
+  "id": "tool_host_calendar_search",
+  "suite": "tool_host",
+  "adapter": "tool_host",
+  "description": "ToolHost should return summarized search results from the calendar client.",
+  "input": {
+    "tool_name": "calendar.search",
+    "args": {
+      "query": "chem prep"
+    },
+    "search_events": [
+      {
+        "id": "evt_chem",
+        "summary": "Chem Prep",
+        "start": "2026-04-02T10:00:00-04:00",
+        "end": "2026-04-02T11:00:00-04:00",
+        "attendees": [],
+        "status": "confirmed"
+      },
+      {
+        "id": "evt_lab",
+        "summary": "Chem Lab",
+        "start": "2026-04-03T12:00:00-04:00",
+        "end": "2026-04-03T13:00:00-04:00",
+        "attendees": [],
+        "status": "confirmed"
+      }
+    ]
+  },
+  "expected": {
+    "status": "ok",
+    "is_available": true,
+    "events_count": 2,
+    "result_keys_include": ["events"]
+  },
+  "tags": ["tool-host", "calendar", "lookup"]
+}
