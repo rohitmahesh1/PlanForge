@@ -27,6 +27,10 @@ class MessageIn(BaseModel):
     )
     # Optional hint from clients (Telegram/SMS)
     source: Optional[str] = Field(None, description="telegram|sms|web")
+    dry_run: bool = Field(
+        default=False,
+        description="When true, inspect state and propose actions without making changes",
+    )
 
 
 class MessageOut(BaseModel):
@@ -34,6 +38,7 @@ class MessageOut(BaseModel):
     result_summary: Optional[str] = Field(None, description="Short confirmation for the user")
     # You can include op_ids if the LLM performed writes:
     op_ids: Optional[list[str]] = None
+    dry_run: bool = False
 
 
 @router.post("", response_model=MessageOut)
@@ -56,7 +61,13 @@ async def handle_message(
         policies=context.policies,
         freebusy_snapshot=context.freebusy_snapshot,
         source=payload.source or "web",
+        dry_run=payload.dry_run,
     )
 
     # Expect the LLM router to return a user-facing summary + any op_ids it executed
-    return MessageOut(status="ok", result_summary=result.summary, op_ids=result.op_ids or [])
+    return MessageOut(
+        status="ok",
+        result_summary=result.summary,
+        op_ids=result.op_ids or [],
+        dry_run=payload.dry_run,
+    )
