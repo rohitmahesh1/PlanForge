@@ -9,6 +9,7 @@ class EvalCase:
     id: str
     suite: str
     adapter: str
+    mode: str
     description: str
     input: Dict[str, Any]
     expected: Dict[str, Any]
@@ -48,6 +49,7 @@ class EvalResult:
                 "id": self.case.id,
                 "suite": self.case.suite,
                 "adapter": self.case.adapter,
+                "mode": self.case.mode,
                 "description": self.case.description,
                 "tags": self.case.tags,
             },
