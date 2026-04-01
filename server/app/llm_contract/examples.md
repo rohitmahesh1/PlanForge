@@ -12,10 +12,20 @@
 **User:** “I overslept 90 minutes. Reorganize today.”
 1) `POST /calendar/reorg_today { now: "2025-10-16T13:15:00Z", delay_min: 90 }`
 
+## Move an existing event by name
+**User:** “Move my dentist appointment to next Tuesday afternoon.”
+1) `POST /calendar/search { query: "dentist", start: "...", end: "...", limit: 5 }`
+2) `POST /calendar/freebusy { start: "...", end: "..." }`
+3) `POST /calendar/move { event_id: "...", new_start: "...", new_end: "..." }`
+
 ## Screenshot of a meeting invite
 **User:** (sends screenshot)
 1) Extract title/time via OCR in-model.
 2) `POST /calendar.create` with parsed fields.
+
+## Review upcoming tasks
+**User:** “What tasks do I have due this week?”
+1) `GET /tasks/list { from_date: "2025-10-13", to_date: "2025-10-19" }`
 
 ## Undo last change
 **User:** “Undo.”
