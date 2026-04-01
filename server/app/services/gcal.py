@@ -1,20 +1,20 @@
 # server/app/services/gcal.py
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 
 from app.config import get_settings
 from app.models.base import AsyncSession, get_session
 from app.models.user import User, UserORM
 from app.models.prefs import Prefs, PrefsUpdate, PrefsORM
-from app.services.errors import CalendarError, NotFoundError, OAuthError
+from app.services.errors import CalendarError, OAuthError
 from app.services.google_oauth import refresh_access_token
 from app.services.http import http_json
 from app.services.timezone import to_tz
-from app.utils import decrypt_token, to_rfc3339
+from app.utils import decrypt_token, to_rfc3339, utcnow
 
 
 GCAL_BASE = "https://www.googleapis.com/calendar/v3"
@@ -33,6 +33,7 @@ class GCalClient:
     def __init__(self, user: User):
         self.user = user
         self._access_token: Optional[str] = None
+        self._access_token_expires_at: Optional[datetime] = None
 
     # -------------------------
     # Auth helpers
@@ -43,6 +44,14 @@ class GCalClient:
         Refresh an access token using the user's stored refresh token.
         (MVP: refresh on every call for simplicity.)
         """
+        now = utcnow()
+        if (
+            self._access_token
+            and self._access_token_expires_at
+            and now < self._access_token_expires_at
+        ):
+            return self._access_token
+
         async with get_session() as session:
             # Fetch the persisted user row to access the encrypted refresh token
             user_row = await _get_user_row(session, self.user.id)
@@ -60,6 +69,13 @@ class GCalClient:
             if not access_token:
                 raise OAuthError("Refresh succeeded but no access_token returned.")
             self._access_token = access_token
+            expires_in = _coerce_expires_in(tokens.get("expires_in"))
+            if expires_in is not None:
+                self._access_token_expires_at = now + timedelta(
+                    seconds=max(0, expires_in - 60)
+                )
+            else:
+                self._access_token_expires_at = now + timedelta(minutes=50)
             return access_token
 
     async def _headers(self) -> Dict[str, str]:
@@ -90,6 +106,9 @@ class GCalClient:
         start: datetime,
         end: datetime,
         calendar_id: Optional[str] = None,
+        *,
+        query: Optional[str] = None,
+        max_results: int = 2500,
     ) -> list[dict]:
         """
         List single (expanded) events within [start, end).
@@ -100,14 +119,36 @@ class GCalClient:
             "orderBy": "startTime",
             "timeMin": to_rfc3339(start),
             "timeMax": to_rfc3339(end),
-            "maxResults": "2500",
+            "maxResults": str(max(1, min(max_results, 2500))),
         }
+        if query:
+            params["q"] = query
         url = f"{GCAL_BASE}/calendars/{cid}/events"
         try:
             data = await http_json("GET", url, headers=await self._headers(), params=params)
             return data.get("items", [])
         except Exception as exc:
             raise CalendarError(f"Failed to list events: {exc}") from exc
+
+    async def search_events(
+        self,
+        *,
+        query: str,
+        start: datetime,
+        end: datetime,
+        calendar_id: Optional[str] = None,
+        max_results: int = 20,
+    ) -> list[dict]:
+        query = query.strip()
+        if not query:
+            return []
+        return await self.list_events(
+            start,
+            end,
+            calendar_id=calendar_id,
+            query=query,
+            max_results=max_results,
+        )
 
     async def get_event(self, event_id: str, calendar_id: Optional[str] = None) -> Optional[dict]:
         cid = calendar_id or await self.get_primary_calendar_id()
@@ -286,3 +327,10 @@ def _normalize_patch_datetimes(patch: dict, tz_str: str) -> dict:
         dt = fixed["end"]
         fixed["end"] = {"dateTime": to_rfc3339(to_tz(dt, tz_str)), "timeZone": tz_str}
     return fixed
+
+
+def _coerce_expires_in(val: Any) -> Optional[int]:
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return None
