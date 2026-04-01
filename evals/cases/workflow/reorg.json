@@ -1,0 +1,21 @@
+{
+  "id": "workflow_reorg",
+  "suite": "workflow",
+  "adapter": "workflow_heuristic",
+  "description": "Overslept or delay requests should use the day reorganization workflow.",
+  "input": {
+    "text": "I overslept 45 minutes, can you rework the rest of today?",
+    "source": "web",
+    "dry_run": false
+  },
+  "expected": {
+    "intent": "reorganize_day",
+    "workflow": "day_reorganization",
+    "needs_lookup": true,
+    "expects_write": true,
+    "confidence_in": ["high"],
+    "allowed_tools_include": ["calendar.reorg_today", "calendar.list"],
+    "primary_tools_include": ["calendar.reorg_today"]
+  },
+  "tags": ["reorg"]
+}
