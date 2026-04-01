@@ -1,10 +1,17 @@
 # server/create_db.py
-import asyncio
-from app.models.base import engine, Base
+from __future__ import annotations
 
-async def main():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+from pathlib import Path
+
+from alembic import command
+from alembic.config import Config
+
+
+def main() -> None:
+    repo_root = Path(__file__).resolve().parent.parent
+    config = Config(str(repo_root / "alembic.ini"))
+    command.upgrade(config, "head")
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
