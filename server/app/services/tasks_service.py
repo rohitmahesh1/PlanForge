@@ -201,3 +201,13 @@ def _summary_done(summary: str) -> str:
     if s.startswith("✅"):
         return s  # already done
     return "✅ " + s
+
+
+def serialize_task_item(task: TaskItem) -> Dict[str, Any]:
+    return {
+        "id": task.id,
+        "title": task.title,
+        "due": task.due.isoformat(),
+        "status": task.status,
+        "event_id": task.event_id,
+    }
