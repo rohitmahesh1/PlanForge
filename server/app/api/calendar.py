@@ -17,7 +17,7 @@ from app.auth.google_oauth import require_user
 from app.models.user import User
 from app.models.changelog import ChangeLogEntry
 from app.models.prefs import Prefs
-from app.services.calendar_projection import summarize_event
+from app.services.calendar_projection import detail_event, summarize_event
 from app.services.gcal import GCalClient
 from app.services.freebusy import FreeBusyService
 from app.services.undo import ChangeLogger
@@ -62,6 +62,12 @@ class EventSummary(BaseModel):
     status: Optional[str] = None
 
 
+class EventDetail(EventSummary):
+    notes: Optional[str] = None
+    calendar_id: Optional[str] = None
+    html_link: Optional[str] = None
+
+
 class EventListRequest(BaseModel):
     start: datetime
     end: datetime
@@ -79,6 +85,11 @@ class EventSearchRequest(BaseModel):
 
 class EventListResponse(BaseModel):
     events: list[EventSummary]
+
+
+class EventGetRequest(BaseModel):
+    event_id: str
+    calendar_id: Optional[str] = None
 
 
 class EventCreateRequest(BaseModel):
@@ -174,6 +185,18 @@ async def search_events(
         max_results=body.limit,
     )
     return EventListResponse(events=_event_summaries(events))
+
+
+@router.post("/get", response_model=EventDetail)
+async def get_event(
+    body: EventGetRequest,
+    user: User = Depends(require_user),
+) -> EventDetail:
+    gcal = GCalClient(user=user)
+    event = await gcal.get_event(body.event_id, calendar_id=body.calendar_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return EventDetail(**detail_event(event))
 
 
 @router.post("/create", response_model=OpResult)
