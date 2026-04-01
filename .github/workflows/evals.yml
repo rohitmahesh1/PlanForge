@@ -1,0 +1,38 @@
+name: Evals
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  deterministic-evals:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check Out Repo
+        uses: actions/checkout@v4
+
+      - name: Set Up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile Eval Modules
+        run: python -m py_compile evals/*.py evals/adapters/*.py server/app/services/agent_workflows.py
+
+      - name: Run Deterministic Eval Suites
+        run: python -m evals.runner --write-artifacts
+
+      - name: Compare Deterministic Baseline
+        run: python -m evals.baseline compare --baseline evals/baselines/deterministic.json --candidate evals/reports/latest.json --fail-on-new-cases
+
+      - name: Upload Eval Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-reports
+          path: |
+            evals/reports/latest.json
+            evals/reports/latest.md
