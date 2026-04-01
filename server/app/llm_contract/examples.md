@@ -15,8 +15,10 @@
 ## Move an existing event by name
 **User:** “Move my dentist appointment to next Tuesday afternoon.”
 1) `POST /calendar/search { query: "dentist", start: "...", end: "...", limit: 5 }`
-2) `POST /calendar/freebusy { start: "...", end: "..." }`
-3) `POST /calendar/move { event_id: "...", new_start: "...", new_end: "..." }`
+2) `POST /calendar/get { event_id: "..." }`
+3) If multiple plausible events are returned, ask a concise clarification.
+4) `POST /calendar/freebusy { start: "...", end: "..." }`
+5) `POST /calendar/move { event_id: "...", new_start: "...", new_end: "..." }`
 
 ## Screenshot of a meeting invite
 **User:** (sends screenshot)
@@ -26,6 +28,11 @@
 ## Review upcoming tasks
 **User:** “What tasks do I have due this week?”
 1) `GET /tasks/list { from_date: "2025-10-13", to_date: "2025-10-19" }`
+
+## Preview a plan without changing anything
+**User:** “Dry run: shift my Wednesday deep work blocks after lunch.”
+1) Call only read tools such as `calendar.search`, `calendar.get`, `calendar.list`, and `calendar.freebusy`.
+2) Explain the proposed updates without calling any write tools.
 
 ## Undo last change
 **User:** “Undo.”
