@@ -1,0 +1,20 @@
+{
+  "id": "router_stub_undo_preview",
+  "suite": "router_stub",
+  "adapter": "router_stub",
+  "description": "Dry-run undo should preview the action without executing it.",
+  "input": {
+    "text": "Undo my last change.",
+    "source": "web",
+    "dry_run": true
+  },
+  "expected": {
+    "intent": "undo_change",
+    "workflow": "undo_workflow",
+    "trace_status": "completed",
+    "result_kind": "undo_preview",
+    "op_ids_count": 0,
+    "summary_contains": "would undo"
+  },
+  "tags": ["router", "stub", "undo", "dry-run"]
+}
