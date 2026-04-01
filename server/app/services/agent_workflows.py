@@ -328,7 +328,7 @@ class AgentWorkflowService:
                 expects_write=not dry_run,
             )
 
-        if re.search(r"\b(task|todo|to-do|assignment|homework|due|complete|finish)\b", lowered):
+        if re.search(r"\b(task|todo|to-do|assignment|homework|problem set|pset|due|complete|finish)\b", lowered):
             return WorkflowIntent(
                 intent="manage_task",
                 workflow="task_management",
