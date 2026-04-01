@@ -1,0 +1,31 @@
+{
+  "id": "router_stub_availability_summary",
+  "suite": "router_stub",
+  "adapter": "router_stub",
+  "description": "Availability requests should return a concrete stub summary and availability workflow trace.",
+  "input": {
+    "text": "When am I free later today?",
+    "source": "web",
+    "snapshot": {
+      "first_slots": [
+        {
+          "start": "2026-04-02T13:00:00-04:00",
+          "end": "2026-04-02T14:00:00-04:00"
+        },
+        {
+          "start": "2026-04-02T16:30:00-04:00",
+          "end": "2026-04-02T17:15:00-04:00"
+        }
+      ]
+    }
+  },
+  "expected": {
+    "intent": "find_availability",
+    "workflow": "availability_lookup",
+    "trace_status": "completed",
+    "result_kind": "availability_lookup",
+    "tool_calls": 0,
+    "summary_contains": "Next open times"
+  },
+  "tags": ["router", "stub", "availability"]
+}
