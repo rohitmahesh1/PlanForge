@@ -1,5 +1,6 @@
 # server/main.py
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,16 +9,30 @@ from app.config import get_settings
 from app.auth import router as auth_router
 from app.api import message, calendar, tasks, prefs, ops, policies
 from app.integrations import telegram_router, twilio_router
+from app.services.http import close_client
 
 logger = logging.getLogger(__name__)
-app = FastAPI(title="assistant-scheduler")
 settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    try:
+        yield
+    finally:
+        await close_client()
+
+
+app = FastAPI(title="assistant-scheduler", lifespan=lifespan)
+allow_credentials = bool(
+    settings.cors_allow_origins and settings.cors_allow_origins != ["*"]
+)
 
 # CORS (adjust for your clients)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten in prod
-    allow_credentials=True,
+    allow_origins=settings.cors_allow_origins,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
