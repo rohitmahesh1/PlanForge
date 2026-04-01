@@ -1,0 +1,72 @@
+{
+  "id": "sandbox_successful_move",
+  "suite": "sandbox",
+  "adapter": "sandbox_plan",
+  "description": "A successful plan should search, move, and return a done payload with op ids.",
+  "input": {
+    "plan": {
+      "steps": [
+        {
+          "id": "search",
+          "tool": "calendar.search",
+          "args": {
+            "query": "chem prep"
+          }
+        },
+        {
+          "id": "clarify",
+          "if": {
+            "not": {
+              "len_equals": [
+                "$search.events",
+                1
+              ]
+            }
+          },
+          "return": {
+            "status": "needs_clarification",
+            "matches": "$search.events"
+          }
+        },
+        {
+          "id": "move",
+          "tool": "calendar.move",
+          "args": {
+            "event_id": "$search.events.0.id",
+            "new_start": "2026-04-02T16:00:00-04:00",
+            "new_end": "2026-04-02T17:00:00-04:00"
+          }
+        },
+        {
+          "id": "done",
+          "return": {
+            "status": "done",
+            "tool_result": "$move"
+          }
+        }
+      ]
+    },
+    "tool_results": {
+      "calendar.search": {
+        "events": [
+          {
+            "id": "evt_1"
+          }
+        ]
+      },
+      "calendar.move": {
+        "op_id": "op_move_1",
+        "event_id": "evt_1"
+      }
+    }
+  },
+  "expected": {
+    "status": "ok",
+    "result_status": "done",
+    "op_ids_count": 1,
+    "tool_calls": 2,
+    "trace_tools_exact": ["calendar.search", "calendar.move"],
+    "trace_kinds_exact": ["tool", "condition", "tool", "return"]
+  },
+  "tags": ["sandbox", "success"]
+}
