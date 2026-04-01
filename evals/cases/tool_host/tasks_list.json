@@ -1,0 +1,29 @@
+{
+  "id": "tool_host_tasks_list",
+  "suite": "tool_host",
+  "adapter": "tool_host",
+  "description": "ToolHost should serialize task list items through the task service.",
+  "input": {
+    "tool_name": "tasks.list",
+    "args": {},
+    "list_tasks": [
+      {
+        "task_event_id": "task_math",
+        "title": "Math Problem Set",
+        "status": "todo"
+      },
+      {
+        "task_event_id": "task_reading",
+        "title": "Reading Notes",
+        "status": "todo"
+      }
+    ]
+  },
+  "expected": {
+    "status": "ok",
+    "is_available": true,
+    "tasks_count": 2,
+    "result_keys_include": ["tasks"]
+  },
+  "tags": ["tool-host", "tasks"]
+}
