@@ -1,0 +1,21 @@
+{
+  "id": "workflow_dry_run_event",
+  "suite": "workflow",
+  "adapter": "workflow_heuristic",
+  "description": "Dry-run requests should keep the event workflow but clear the write expectation.",
+  "input": {
+    "text": "Schedule focus time tomorrow at 3pm for 45 minutes.",
+    "source": "web",
+    "dry_run": true
+  },
+  "expected": {
+    "intent": "manage_event",
+    "workflow": "event_management",
+    "needs_lookup": false,
+    "expects_write": false,
+    "confidence_in": ["medium", "high"],
+    "allowed_tools_include": ["calendar.create", "calendar.freebusy"],
+    "primary_tools_include": ["calendar.freebusy"]
+  },
+  "tags": ["dry-run", "calendar"]
+}
