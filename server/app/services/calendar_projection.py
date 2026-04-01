@@ -25,3 +25,21 @@ def summarize_event(event: Dict[str, Any]) -> Dict[str, Any]:
         "priority": priority,
         "status": event.get("status"),
     }
+
+
+def detail_event(event: Dict[str, Any]) -> Dict[str, Any]:
+    details = summarize_event(event)
+    details["notes"] = event.get("description")
+    details["calendar_id"] = _calendar_id_from_event(event)
+    details["html_link"] = event.get("htmlLink")
+    return details
+
+
+def _calendar_id_from_event(event: Dict[str, Any]) -> str | None:
+    organizer = (event.get("organizer") or {}).get("email")
+    if organizer:
+        return organizer
+    creator = (event.get("creator") or {}).get("email")
+    if creator:
+        return creator
+    return None
