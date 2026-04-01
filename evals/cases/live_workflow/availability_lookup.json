@@ -1,0 +1,20 @@
+{
+  "id": "live_workflow_availability_lookup",
+  "suite": "live_workflow",
+  "adapter": "live_openai_workflow",
+  "mode": "live",
+  "description": "Live benchmark for availability intent classification.",
+  "input": {
+    "text": "When am I free tomorrow afternoon?",
+    "source": "web",
+    "dry_run": false
+  },
+  "expected": {
+    "intent": "find_availability",
+    "workflow": "availability_lookup",
+    "needs_lookup": true,
+    "expects_write": false,
+    "confidence_in": ["medium", "high"]
+  },
+  "tags": ["live", "workflow", "availability"]
+}
